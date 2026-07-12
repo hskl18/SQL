@@ -157,20 +157,6 @@ Table::Table(const string& table_name) : Table() {
     f.close();
 }
 
-Table& Table::operator=(const Table& RHS){
-    if (this == &RHS) return *this;
-    tableName = RHS.tableName;
-    cache = RHS.cache;
-    recordIndices = RHS.recordIndices;
-    printQueue = RHS.printQueue;
-    fieldNames = RHS.fieldNames;
-    selectedFields = RHS.selectedFields;
-    fieldNameMap = RHS.fieldNameMap;
-    numRecords = RHS.numRecords;
-    return *this;
-}
-
-
 // Function to insert data into the table
 string Table::insert_into(const vector<string>& field_values) {
     if (field_values.size() != fieldNames.size()) {

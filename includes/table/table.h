@@ -96,8 +96,9 @@ public:
     Table();
     Table(const string& table_name);
     Table(const string& table_name, const vector<string>& fieldNames);
-    Table& operator=(const Table& RHS);
-    ~Table() {}
+    Table(const Table&) = default;
+    Table& operator=(const Table&) = default;
+    ~Table() = default;
 
     // SQL: CREATE TABLE
     string create_table(const string& tableName, const vector<string>& fieldNames);
