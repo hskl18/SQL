@@ -11,7 +11,7 @@ bool file_exists(const char filename[]){
 }
 // Open a file for reading and writing
 
-void open_fileRW(fstream& f, const char filename[]) throw(char*){
+void open_fileRW(fstream& f, const char filename[]){
     f.open(filename, ios::in | ios::out | ios::binary);
     if(!f.is_open()){
         throw "File could not be opened";

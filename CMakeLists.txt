@@ -1,72 +1,49 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-project(project_name)
+cmake_minimum_required(VERSION 3.20)
 
-#. . . . . . . . . . . . . . . . . . . .
-include(GNUInstallDirs)
+project(SQLInCPP VERSION 1.0.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(SQL_CORE_SOURCES
+    includes/binary_files/file_record.cpp
+    includes/binary_files/utilities.cpp
+    includes/parser/parser.cpp
+    includes/shunting_yard/shunting_yard.cpp
+    includes/sql/sql.cpp
+    includes/table/table.cpp
+    includes/tokenizer/ftokenize.cpp
+    includes/tokenizer/state_machine_functions.cpp
+    includes/tokenizer/stokenize.cpp
+)
+
+add_library(sql_core STATIC ${SQL_CORE_SOURCES})
+target_include_directories(sql_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+
 if(MSVC)
-    add_compile_options(/W4)
-    add_link_options(/W4)
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin)
+    target_compile_options(sql_core PRIVATE /W4)
 else()
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+    target_compile_options(sql_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(run_sql run_sql.cpp)
+target_link_libraries(run_sql PRIVATE sql_core)
 
-# place binaries and libraries according to GNU standards
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+include(CTest)
 
+if(BUILD_TESTING)
+    add_executable(sql_tests tests/sql_tests.cpp)
+    target_link_libraries(sql_tests PRIVATE sql_core)
+    target_compile_definitions(sql_tests PRIVATE
+        SQL_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/batch"
+    )
 
+    set(SQL_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-workspace")
+    file(MAKE_DIRECTORY "${SQL_TEST_WORKING_DIRECTORY}")
 
-if(CMAKE_CXX_COMPILER_ID MATCHES GNU)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
+    add_test(NAME sql_behavior COMMAND sql_tests)
+    set_tests_properties(sql_behavior PROPERTIES
+        WORKING_DIRECTORY "${SQL_TEST_WORKING_DIRECTORY}"
+    )
 endif()
-#. . . . . . . . . . . . . . . . . . . .
-
-# ------------------------------------
-include(FetchContent)
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
-)
-
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
-
-# GoogleTest requires at least C++11
-set(CMAKE_CXX_STANDARD 14)
- 
-enable_testing() 
-
-
-# ------------------------------------
-
-#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-#   Grab all cpp files from includes folder
-#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-set(INCLUDES_FOLDER includes)
-FILE(GLOB_RECURSE SOURCE_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}   "${INCLUDES_FOLDER}/*.cpp" )
-#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-ADD_EXECUTABLE(run_sql
-        run_sql.cpp
-    ${SOURCE_FILES}
-)
-ADD_EXECUTABLE(basic_test
-        _tests/_test_files/basic_test.cpp
-    ${SOURCE_FILES}
-)
-ADD_EXECUTABLE(test_batch1
-        _tests/_test_files/test_batch1.cpp
-        ${SOURCE_FILES}
-        )
-
-ADD_EXECUTABLE(test_batch2
-        _tests/_test_files/test_batch2.cpp
-        ${SOURCE_FILES}
-        )
-TARGET_LINK_LIBRARIES(run_sql gtest)
-TARGET_LINK_LIBRARIES(basic_test gtest)
-TARGET_LINK_LIBRARIES(test_batch1 gtest)
-TARGET_LINK_LIBRARIES(test_batch2 gtest)

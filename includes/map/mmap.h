@@ -23,7 +23,7 @@ public:
                 : _it(it){}
 
         // OPERATORS
-        Iterator operator++(int unused){
+        Iterator operator++(int){
             Iterator hold = *this;
             this->_it++;
             return hold;

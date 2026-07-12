@@ -34,7 +34,7 @@ public:
         }
 
         // Postfix ++ (it++)
-        Iterator operator ++ (int un_used){
+        Iterator operator ++ (int){
             Iterator ans = *this;
             if(this->key_ptr == this->it->data_count-1){
                 this->it=this->it->next;
@@ -209,7 +209,7 @@ void BPlusTree<Item>::copy_tree(const BPlusTree &source, BPlusTree *&last_node) 
     this->next= nullptr;
 
     this->child_count = source.child_count;
-    for (int i = 0; i < this->child_count; ++i) {
+    for (std::size_t i = 0; i < this->child_count; ++i) {
         this->subset[i]=new BPlusTree<Item>();
         this->subset[i]->copy_tree(*source.subset[i], last_node);
     }
@@ -546,8 +546,6 @@ void BPlusTree<Item>::transfer_from_right(std::size_t i){
 template <class Item>
 BPlusTree<Item>* BPlusTree<Item>::merge_with_next_subset(std::size_t i){
     BPlusTree<Item>* left_subset = this->subset[i];
-    BPlusTree<Item>* right_subset = this->subset[i + 1];
-
     Item item;
     delete_item(this->data, i, this->data_count, item);
     if (!left_subset->is_leaf()) attach_item(left_subset->data, left_subset->data_count, item);

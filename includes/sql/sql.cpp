@@ -4,6 +4,7 @@
 SQL::SQL(){
     this->_table=Table();
     this->_parser=Parser();
+    this->_error=false;
 }
 // Process commands from a file
 SQL::SQL(const char* file): SQL(){this->batch(file);}
@@ -15,7 +16,8 @@ Table SQL::command(const string& cmd){
     MMap<string, string> parsed_tree = this->_parser.parse_tree();
     this->_ptree = parsed_tree;
 
-    if (_ptree.empty())return _table;
+    this->_error = _ptree.empty();
+    if (this->_error) return _table;
 
     string table_name = parsed_tree["table_name"][0];
     string command = parsed_tree["command"][0];
@@ -48,22 +50,20 @@ Table SQL::command(const string& cmd){
 
 void SQL::batch(const char* file){
     ifstream f;
-    string temp = file;
-    string input_file_path = "../../batch/" + temp;
-
-    f.open(input_file_path.c_str());
+    f.open(file);
 
     if (f.fail()){
+        this->_error = true;
         cout << "No file named " << file << " exists." << endl;
         return;
     }
 
+    this->_error = false;
     cout << "------------------------------Batch Begins------------------------------" << endl;
-    while (!f.eof()){
-        string str;
-        getline(f, str);
+    string str;
+    while (getline(f, str)){
 
-        if(str[0] != '/' && !str.empty()){
+        if(!str.empty() && str[0] != '/'){
             cout << "command:" << str << endl;
             this->_table = this->command(str);
 

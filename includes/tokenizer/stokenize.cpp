@@ -3,12 +3,12 @@
 STokenizer::STokenizer() {
     _buffer = "";
     _pos = 0;
-    make_table(_table);
+    make_table();
 }
 
 STokenizer::STokenizer(const char str[]) {
     set_string(str);
-    make_table(_table);
+    make_table();
 }
 
 void STokenizer::set_string(const char str[]) {
@@ -24,7 +24,7 @@ bool STokenizer::more() {
     return !done();
 }
 
-void STokenizer::make_table(int table[][MAX_COLUMNS]) {
+void STokenizer::make_table() {
     init_table(_table);
     mark_fail(_table, 0);
     for (int i = 1; i <= 7; ++i) mark_success(_table, i);
@@ -66,36 +66,29 @@ STRING_TOKEN_TYPES STokenizer::token_type(int state) const {
 bool STokenizer::get_token(int start_state, SToken& token) {
     if (done()) return false;
 
-    int start = _pos;
-    int hold = start;
-    char t = _buffer[_pos];
-
-    if (!(t <= 255 && t >= 0)) {
-        token = SToken("", TOKEN_UNKNOWN);
-        _pos++;
-        return true;
-    }
+    std::size_t start = _pos;
+    std::size_t hold = start;
+    unsigned char t = static_cast<unsigned char>(_buffer[_pos]);
 
     int state = _table[start_state][t];
 
     if (state >= 4 && state <= 7) {
-        token = SToken(string(1, t), token_type(state));
+        token = SToken(string(1, static_cast<char>(t)), token_type(state));
         _pos++;
         return true;
     }
 
     if (state == -1) {
-        token = SToken(string(1, t), TOKEN_UNKNOWN);
+        token = SToken(string(1, static_cast<char>(t)), TOKEN_UNKNOWN);
         _pos++;
         return true;
     }
 
-    int size = _buffer.length();
+    std::size_t size = _buffer.length();
     start++;
 
     while (start < size) {
-        t = _buffer[start];
-        if (!(t <= 255 && t >= 0)) break;
+        t = static_cast<unsigned char>(_buffer[start]);
         int next_state = _table[state][t];
 
         if (state == 1) {
@@ -110,12 +103,13 @@ bool STokenizer::get_token(int start_state, SToken& token) {
                 continue;
             }
             if (t == '.' && start + 1 < size) {
-                char next_token = _buffer[start + 1];
+                unsigned char next_token =
+                    static_cast<unsigned char>(_buffer[start + 1]);
                 while (start < size) {
                     int next_next_state = _table[state][next_token];
                     if (next_next_state != 2) break;
                     start++;
-                    next_token = _buffer[start];
+                    next_token = static_cast<unsigned char>(_buffer[start]);
                 }
                 break;
             }
@@ -143,7 +137,6 @@ bool STokenizer::get_token(int start_state, SToken& token) {
 }
 
 STokenizer &operator>>(STokenizer &s, SToken &t) {
-    int state = 0;
     s.get_token(0, t);
     return s;
 }

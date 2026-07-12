@@ -40,7 +40,7 @@ MMap<string, string> Parser::parse_tree(){
 
 bool Parser::parse(){
     // Check if the number of types matches the number of input tokens
-    if (this->types.size() != this->input.size()) return false;
+    if (this->types.empty() || this->types.size() != this->input.size()) return false;
 
     int state = 0;
     Ptype type = this->types[0];
@@ -75,7 +75,7 @@ bool Parser::parse(){
     // Update the state based on the state table
     state = this->table[0][type];
 
-    for (int i = 1; i < this->input.size(); ++i){
+    for (std::size_t i = 1; i < this->input.size(); ++i){
         type = this->types[i];
         int prev_state = state;
         state = this->table[prev_state][type];
@@ -162,7 +162,7 @@ void Parser::tokenize(){
         // reserved keywords
         bool did_push = false;
         if (token.type() == TOKEN_ALPHA){
-            int prev_size = this->types.size();
+            std::size_t prev_size = this->types.size();
             if (token.token_str() == "create") this->types.push_back(CREATE);
             if (token.token_str() == "table") this->types.push_back(TABLE);
             if (token.token_str() == "fields") this->types.push_back(FIELDS);
@@ -196,9 +196,9 @@ void Parser::tokenize(){
     // process "" here, basically concat
     vector<SToken> clean_input;
     vector<Ptype> clean_type;
-    for (int i = 0; i < this->input.size(); ++i){
+    for (std::size_t i = 0; i < this->input.size(); ++i){
         if (this->input[i].token_str() == "\""){
-            int j = i + 1;
+            std::size_t j = i + 1;
             string s = "";
             while (this->input[j].type() == TOKEN_ALPHA){
                 if (j != i + 1) s += " ";

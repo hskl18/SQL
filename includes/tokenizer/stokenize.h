@@ -12,10 +12,10 @@
 class STokenizer {
 private:
     string _buffer;
-    int _pos{};
+    std::size_t _pos{};
     int _table[MAX_ROWS][MAX_COLUMNS]{};
 
-    void make_table(int table[][MAX_COLUMNS]);
+    void make_table();
     STRING_TOKEN_TYPES token_type(int state) const;
     bool get_token(int start_state, SToken& token);
 
