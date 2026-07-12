@@ -46,7 +46,7 @@ public:
             return *this;
         }
         // friend operator: it++
-        friend Iterator operator++(Iterator& it, int unused){
+        friend Iterator operator++(Iterator& it, int){
             Iterator hold = it;
             it._ptr = it._ptr->_next;
             return hold;
@@ -75,7 +75,7 @@ public:
     }
     const T& operator[](int i) const{return (*this)[i];}
     Queue<T>& operator+=(const vector<T>& items){
-        for (int i = 0; i < items.size(); i++){
+        for (std::size_t i = 0; i < items.size(); i++){
             this->push(items[i]);
         }
         return *this;

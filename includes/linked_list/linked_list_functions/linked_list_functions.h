@@ -202,6 +202,7 @@ T _delete_node(node<T>*& head, node<T>* delete_this)
     if (delete_this == lastNode)
     {
         node<T>* prevNode = lastNode->_prev;
+        if (prevNode != nullptr) prevNode->_next = nullptr;
         delete delete_this;
         return val;
     }

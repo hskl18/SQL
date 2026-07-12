@@ -42,7 +42,7 @@ Table::Table(const string& table_name, const vector<string>& field_names) : Tabl
     recordIndices.clear();
 
     // Initialize fieldNameMap and cache
-    for (int i = 0; i < fieldNames.size(); ++i) {
+    for (std::size_t i = 0; i < fieldNames.size(); ++i) {
         fieldNameMap[fieldNames[i]] = i;
         cache[fieldNames[i]] = MMap<string, long>();
     }
@@ -76,7 +76,7 @@ Table::Table(const string& table_name) : Table() {
     selectedFields = field_names;
     f.close();
 
-    for (int i = 0; i < fieldNames.size(); ++i) {
+    for (std::size_t i = 0; i < fieldNames.size(); ++i) {
         fieldNameMap[fieldNames[i]] = i;
     }
 
@@ -96,7 +96,7 @@ Table::Table(const string& table_name) : Table() {
 
         // Put the ith_entry into cache
         vector<string> ith_entry = r.get_records_string();
-        for (int ith_entry_walker = 0; ith_entry_walker < ith_entry.size(); ++ith_entry_walker) {
+        for (std::size_t ith_entry_walker = 0; ith_entry_walker < ith_entry.size(); ++ith_entry_walker) {
             string field_value = ith_entry[ith_entry_walker];
             long index = i;
             cache[fieldNames[ith_entry_walker]].insert(field_value, index);
@@ -139,7 +139,7 @@ string Table::insert_into(const vector<string>& field_values) {
     f.close();
 
     // Insert the record into the cache
-    for (int i = 0; i < field_values.size(); ++i) {
+    for (std::size_t i = 0; i < field_values.size(); ++i) {
         // Extract the field value and field name
         const string& field_value = field_values[i];
         string field_name = fieldNames[i];
@@ -166,7 +166,7 @@ ostream& operator<<(ostream& outs, const Table& print_me){
 
     // for field values
     int eIndex = print_me.fieldNames.size();
-    for (int i = 0; i < print_me.printQueue.size(); ++i){
+    for (std::size_t i = 0; i < print_me.printQueue.size(); ++i){
         string field_value = print_me.printQueue[i];
         if (i % eIndex == 0){
             outs << endl;
@@ -253,7 +253,7 @@ Table Table::select(const vector<string>& selected_fields, const string& field_n
 
         if (byte == 0) break;
         vector<string> entry = r.get_records_string();
-        for (int i = 0; i < entry.size(); ++i)
+        for (std::size_t i = 0; i < entry.size(); ++i)
             if (contains(temp.selectedFields, fieldNames[i]))
             {
                 temp.printQueue += entry[i];
@@ -277,22 +277,7 @@ Table Table::select(const vector<string>& selected_fields, const vector<string>&
     if (!infix.empty()){
         typename Queue<Token*>::Iterator it;
         for (it = infix.begin(); it != infix.end(); ++it){
-            // Determine the token type and delete the appropriate dynamic cast
-            TokenType tokenType = (*it)->token_type();
-
-            if (tokenType == TOKEN_TOKENSTR) {
-                delete dynamic_cast<TokenStr*>(*it);
-            } else if (tokenType == TOKEN_RIGHTPAREN) {
-                delete dynamic_cast<RightParen*>(*it);
-            } else if (tokenType == TOKEN_LEFTPAREN) {
-                delete dynamic_cast<LeftParen*>(*it);
-            } else if (tokenType == TOKEN_LOGICAL) {
-                delete dynamic_cast<Logical*>(*it);
-            } else if (tokenType == TOKEN_RELATIONAL) {
-                delete dynamic_cast<Relational*>(*it);
-            } else {
-                // Do nothing for other token types
-            }
+            delete *it;
         }
         infix.clear();
     }
@@ -326,7 +311,7 @@ Table Table::select(const vector<string>& selected_fields, const Queue<Token*>& 
     if (!expression.empty()){temp.recordIndices = Eval(expression);}
     else{
         recordIndices.clear();
-        for (int i = 0; i < numRecords; ++i){
+        for (long i = 0; i < numRecords; ++i){
             temp.recordIndices.push_back(i);
         }
     }
@@ -341,7 +326,7 @@ Table Table::select(const vector<string>& selected_fields, const Queue<Token*>& 
 
         if (byte == 0) break;
         vector<string> entry = r.get_records_string();
-        for (int i = 0; i < entry.size(); ++i)
+        for (std::size_t i = 0; i < entry.size(); ++i)
             if (contains(temp.fieldNames, fieldNames[i])) temp.printQueue += entry[i];
     }
     f.close();

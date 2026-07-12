@@ -50,7 +50,7 @@ public:
             return *this;
         }
         // friend operator: it++
-        friend Iterator operator++(Iterator& it, int unused){
+        friend Iterator operator++(Iterator& it, int){
             Iterator hold = it;
             it._ptr = it._ptr->_next;
             return hold;

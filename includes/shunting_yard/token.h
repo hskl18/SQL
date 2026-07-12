@@ -13,10 +13,10 @@ class Token
 {
 public:
     Token() = default;
-    ~Token() = default;
+    virtual ~Token() = default;
     virtual TokenType token_type() const{ return TOKEN_TOKENSTR;}
     virtual string token_string() const{ return "";}
-    virtual void print(ostream& outs) const{}
+    virtual void print(ostream&) const{}
     virtual int precedence() const{ return -1;}
     friend ostream& operator<<(ostream& outs, const Token& token){
         token.print(outs);

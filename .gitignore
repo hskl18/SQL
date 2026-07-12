@@ -1,34 +1,35 @@
-# Prerequisites
-*.d
+# Build output
+/build/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+cmake_install.cmake
+Makefile
+Testing/
 
-# Compiled Object files
-*.slo
+# Compiled artifacts
+*.a
+*.app
+*.d
+*.dll
+*.dylib
+*.exe
+*.gch
+*.lai
+*.lib
 *.lo
 *.o
 *.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
 *.out
-*.app
+*.pch
+*.slo
+*.so
 
-cmake-build-debug
+# Database files created by the CLI and tests
+*.bin
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/

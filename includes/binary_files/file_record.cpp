@@ -1,7 +1,7 @@
 #include "file_record.h"
 
 //Constructors
-FileRecord::FileRecord(string s){}
+FileRecord::FileRecord(string){}
 FileRecord::FileRecord(char *str){
     int n = strlen(str);
     this->_records.emplace_back(str,n);
@@ -50,4 +50,3 @@ vector<char *> FileRecord::get_records() {
     return ans;
     //return the record
 }
-

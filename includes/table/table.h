@@ -33,7 +33,7 @@ using namespace std;
 
 template <class T>
 inline bool contains(const vector<T>& v, const T& target){
-    for (int i = 0; i < v.size(); ++i)if (v[i] == target) return true;
+    for (std::size_t i = 0; i < v.size(); ++i)if (v[i] == target) return true;
     return false;
 }
 
@@ -43,7 +43,7 @@ inline void my_sort(vector<string>& a, vector<long>& b){
     if (a.size() != b.size()) return;
 
     vector<pair<string, long>> to_sort;
-    for (int i = 0; i < a.size(); ++i){to_sort.push_back(make_pair(a[i], b[i]));}
+    for (std::size_t i = 0; i < a.size(); ++i){to_sort.push_back(make_pair(a[i], b[i]));}
     sort(to_sort.begin(), to_sort.end(), comparitor);
 
     a.clear();
@@ -117,7 +117,7 @@ public:
     // Get the title of the table
     inline string title() const { return tableName; }
     // Get the fields of the table
-    inline vector<string> get_fields() { return selectedFields; }
+    inline vector<string> get_fields() const { return selectedFields; }
     // Get the number of records in the table
     inline long record_count() const { return select_recnos().size(); }
 private:
@@ -176,7 +176,7 @@ private:
         vector<string> permutated = sField;
         // search for invalids
         vector<int> invalid_indices;
-        for (int i = 0; i < permutated.size(); ++i){
+        for (std::size_t i = 0; i < permutated.size(); ++i){
             string field_name = permutated[i];
             if (!fieldNameMap.contains(field_name)) invalid_indices.push_back(i);
         }

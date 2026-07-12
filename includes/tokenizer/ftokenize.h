@@ -11,7 +11,7 @@
 class FTokenizer{
 public:
     // Maximum number of characters in a block
-    const int MAX_BLOCK = MAX_BUFFER;
+    static constexpr std::size_t MAX_BLOCK = MAX_BUFFER;
     // Constructor
     FTokenizer(char* fname);
     // Extract one token (very similar to the way cin >> works)

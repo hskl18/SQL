@@ -86,7 +86,7 @@ std::size_t index_of_maximal(T data[], std::size_t n){
 
 template <class T>
 std::size_t first_ge(const T data[], std::size_t n, const T& entry){
-    for (int i = 0; i < n; ++i)
+    for (std::size_t i = 0; i < n; ++i)
         if (!(data[i] < entry))
             return i;
     return n;
