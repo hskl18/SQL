@@ -6,6 +6,7 @@
 #include <cassert>    // Provides assert
 #include <cstdlib>    // Provides size_t
 #include <string>     // Provides std::to_string
+#include <stdexcept>
 
 #include "btree_array_functions.h" // Include the implementation.
 
@@ -30,7 +31,7 @@ public:
         }
         const Item operator *() const{
             assert(this->it!= nullptr);
-            return this->it->data(this->key_ptr);
+            return this->it->data[this->key_ptr];
         }
 
         // Postfix ++ (it++)
@@ -161,6 +162,16 @@ private:
         }
         else return nullptr;
     }
+
+    const Item* get_Item(const Item& entry) const{
+        const size_t i = first_ge(this->data, this->data_count, entry);
+        const bool found = (i < this->data_count) && !(entry < this->data[i]);
+
+        if (this->is_leaf() && found) return &this->data[i];
+        if (!this->is_leaf() && found) return this->subset[i + 1]->get_Item(entry);
+        if (!this->is_leaf()) return this->subset[i]->get_Item(entry);
+        return nullptr;
+    }
 };
 
 
@@ -261,8 +272,9 @@ bool BPlusTree<Item>::contains(const Item& entry) const
 
 template<class Item>
 const Item &BPlusTree<Item>::get(const Item &entry) const {
-    if(!this->contains(entry))this->insert(entry);
-    return *this->get_Item(entry);
+    const Item* item = this->get_Item(entry);
+    if (!item) throw std::out_of_range("BPlusTree key does not exist");
+    return *item;
 }
 
 template<class Item>
@@ -310,6 +322,7 @@ typename BPlusTree<Item>::Iterator BPlusTree<Item>::upper_bound(const Item &key)
 
 template<class Item>
 typename BPlusTree<Item>::Iterator BPlusTree<Item>::begin() {
+    if (empty()) return end();
     return BPlusTree::Iterator(this->get_smallest_node());
 }
 
@@ -575,7 +588,7 @@ bool BPlusTree<Item>::is_valid() const
         return false;
     }
     // check if the node has too many children
-    if (child_count > MAXIMUM+1 || child_count < 0) {
+    if (child_count > MAXIMUM+1) {
         return false;
     }
     // check if the data is sorted

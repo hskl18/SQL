@@ -1,5 +1,57 @@
 #include "parser.h"
 
+namespace {
+
+bool classify_unquoted_token(const SToken& token, Ptype& type) {
+    const string text = token.token_str();
+
+    if (token.type() == TOKEN_ALPHA) {
+        if (text == "create") type = CREATE;
+        else if (text == "table") type = TABLE;
+        else if (text == "fields") type = FIELDS;
+        else if (text == "insert") type = INSERT;
+        else if (text == "into") type = INTO;
+        else if (text == "values") type = VALUES;
+        else if (text == "select") type = SELECT;
+        else if (text == "from") type = FROM;
+        else if (text == "where") type = WHERE;
+        else if (text == "or" || text == "and") type = LOGICAL;
+        else type = LITERAL;
+        return true;
+    }
+
+    if (token.type() == TOKEN_NUMBER) {
+        type = LITERAL;
+        return true;
+    }
+
+    if (token.type() == TOKEN_OPERATOR) {
+        const bool is_relational =
+            text == "<=" || text == ">=" || text == "=" ||
+            text == ">" || text == "<" || text == "!=";
+        if (!is_relational) return false;
+        type = RELATIONAL;
+        return true;
+    }
+
+    if (token.type() == TOKEN_PAREN) {
+        type = PARENS;
+        return true;
+    }
+    if (token.type() == TOKEN_STAR && text == "*") {
+        type = ASTERISK;
+        return true;
+    }
+    if (token.type() == TOKEN_COMMA && text == ",") {
+        type = COMMAS;
+        return true;
+    }
+
+    return false;
+}
+
+} // namespace
+
 //constructor
 Parser::Parser(){
     this->tree = MMap<string, string>();
@@ -154,68 +206,47 @@ void Parser::init_(){
 
 // tokenize string into vector
 void Parser::tokenize(){
+    bool inside_quote = false;
+    string quoted_literal;
+
     while (this->token.more()){
-        SToken token = SToken();
-        this->token >> token;
-        if (token.type() == TOKEN_UNKNOWN && token.token_str() != "\"") continue;
-        if (token.type() == TOKEN_SPACE) continue;
-        // reserved keywords
-        bool did_push = false;
-        if (token.type() == TOKEN_ALPHA){
-            std::size_t prev_size = this->types.size();
-            if (token.token_str() == "create") this->types.push_back(CREATE);
-            if (token.token_str() == "table") this->types.push_back(TABLE);
-            if (token.token_str() == "fields") this->types.push_back(FIELDS);
-            if (token.token_str() == "insert") this->types.push_back(INSERT);
-            if (token.token_str() == "into") this->types.push_back(INTO);
-            if (token.token_str() == "values") this->types.push_back(VALUES);
-            if (token.token_str() == "select") this->types.push_back(SELECT);
-            if (token.token_str() == "from") this->types.push_back(FROM);
-            if (token.token_str() == "where") this->types.push_back(WHERE);
+        SToken current;
+        this->token >> current;
+        const string text = current.token_str();
 
-            if (prev_size != this->types.size()) did_push = true;
-        }
-
-        // logical and relational
-        if (token.type() == TOKEN_ALPHA && (token.token_str() == "or" || token.token_str() == "and")){
-            did_push = true;
-            this->types.push_back(LOGICAL);
-        }
-        // =, !=, <, >, <= and >=
-        bool is_relational = (token.token_str() == "<=" || token.token_str() == ">=" || token.token_str() == "=" || token.token_str() == ">" || token.token_str() == "<" || token.token_str() == "!=");
-        if (token.type() == TOKEN_OPERATOR && is_relational) this->types.push_back(RELATIONAL);
-
-        if (token.type() == TOKEN_PAREN) this->types.push_back(PARENS);
-        if (token.type() == TOKEN_STAR && token.token_str() == "*") this->types.push_back(ASTERISK);
-        if (token.type() == TOKEN_COMMA && token.token_str() == ",") this->types.push_back(COMMAS);
-        if (!did_push && (token.type() == TOKEN_ALPHA || token.type() == TOKEN_NUMBER)) this->types.push_back(LITERAL);
-        if (token.type() == TOKEN_UNKNOWN && token.token_str() == "\"") this->types.push_back(QUOTE);
-        this->input.push_back(token);
-    }
-
-    // process "" here, basically concat
-    vector<SToken> clean_input;
-    vector<Ptype> clean_type;
-    for (std::size_t i = 0; i < this->input.size(); ++i){
-        if (this->input[i].token_str() == "\""){
-            std::size_t j = i + 1;
-            string s = "";
-            while (this->input[j].type() == TOKEN_ALPHA){
-                if (j != i + 1) s += " ";
-                s += this->input[j].token_str();
-                ++j;
+        if (inside_quote) {
+            if (text == "\"") {
+                this->input.emplace_back(quoted_literal, TOKEN_ALPHA);
+                this->types.push_back(LITERAL);
+                quoted_literal.clear();
+                inside_quote = false;
+            } else {
+                quoted_literal += text;
             }
-            i = j;
-            clean_input.emplace_back(s, TOKEN_ALPHA);
-            clean_type.push_back(LITERAL);
             continue;
         }
-        clean_input.push_back(this->input[i]);
-        clean_type.push_back(this->types[i]);
+
+        if (text == "\"") {
+            inside_quote = true;
+            continue;
+        }
+        if (current.type() == TOKEN_SPACE) continue;
+
+        Ptype type = LITERAL;
+        if (!classify_unquoted_token(current, type)) {
+            this->input.clear();
+            this->types.clear();
+            return;
+        }
+
+        this->input.push_back(current);
+        this->types.push_back(type);
     }
 
-    this->types = clean_type;
-    this->input = clean_input;
+    if (inside_quote) {
+        this->input.clear();
+        this->types.clear();
+    }
 }
 
 

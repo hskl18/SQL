@@ -26,12 +26,14 @@ public:
     // void print_lookup() { _command.print_lookup(); }
     void batch(const char* file);
     inline bool is_error() const { return this->_error; }
+    inline const string& last_error() const { return this->_last_error; }
     void print_lookup() { this->_ptree.print_lookup(); }
 
 private:
     Table _table;
     Parser _parser;
     bool _error;
+    string _last_error;
     MMap<string, string> _ptree;
 };
 

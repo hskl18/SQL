@@ -36,7 +36,7 @@ int main() {
         Table tb = sql.command(input);
 
         if (sql.is_error()) {
-            cout << "Error: Unable to process the command." << endl;
+            cout << "Error: " << sql.last_error() << endl;
             continue;
         }
 
