@@ -6,6 +6,16 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(SQL_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+
+if(SQL_ENABLE_SANITIZERS)
+    if(MSVC)
+        message(FATAL_ERROR "SQL_ENABLE_SANITIZERS requires GCC or Clang")
+    endif()
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
 set(SQL_CORE_SOURCES
     includes/binary_files/file_record.cpp
     includes/binary_files/utilities.cpp
@@ -21,20 +31,26 @@ set(SQL_CORE_SOURCES
 add_library(sql_core STATIC ${SQL_CORE_SOURCES})
 target_include_directories(sql_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-if(MSVC)
-    target_compile_options(sql_core PRIVATE /W4)
-else()
-    target_compile_options(sql_core PRIVATE -Wall -Wextra -Wpedantic)
-endif()
+function(sql_enable_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
+sql_enable_warnings(sql_core)
 
 add_executable(run_sql run_sql.cpp)
 target_link_libraries(run_sql PRIVATE sql_core)
+sql_enable_warnings(run_sql)
 
 include(CTest)
 
 if(BUILD_TESTING)
     add_executable(sql_tests tests/sql_tests.cpp)
     target_link_libraries(sql_tests PRIVATE sql_core)
+    sql_enable_warnings(sql_tests)
     target_compile_definitions(sql_tests PRIVATE
         SQL_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/batch"
     )
@@ -46,4 +62,14 @@ if(BUILD_TESTING)
     set_tests_properties(sql_behavior PROPERTIES
         WORKING_DIRECTORY "${SQL_TEST_WORKING_DIRECTORY}"
     )
+
+    add_executable(parser_tests tests/parser_tests.cpp)
+    target_link_libraries(parser_tests PRIVATE sql_core)
+    sql_enable_warnings(parser_tests)
+    add_test(NAME parser_safety COMMAND parser_tests)
+
+    add_executable(bplustree_tests tests/bplustree_tests.cpp)
+    target_link_libraries(bplustree_tests PRIVATE sql_core)
+    sql_enable_warnings(bplustree_tests)
+    add_test(NAME bplustree_evidence COMMAND bplustree_tests)
 endif()

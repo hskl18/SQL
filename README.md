@@ -31,7 +31,7 @@ Values are stored and ordered as strings, so numeric-looking values use lexical 
 | `includes/table` | Owns table persistence, indexes, projections, and selections. |
 | `includes/sql` | Coordinates parsing and table operations through the public `SQL` interface. |
 
-Additional implementation notes are available in [design.txt](design.txt).
+Storage invariants, query semantics, and deliberate limits are documented in [DESIGN.md](DESIGN.md).
 The canonical repository is [hskl18/SQL](https://github.com/hskl18/SQL).
 
 ## Build
@@ -51,8 +51,20 @@ The build has no downloaded test framework or other third-party dependency.
 ctest --test-dir build --output-on-failure
 ```
 
-The test executable verifies inserts, projections, compound filters, persistence, invalid input handling, and both repository batch fixtures.
+The test executables verify inserts, projections, compound filters, persistence, table and row validation, corrupt-file handling, quote and parenthesis safety, deterministic B+ tree properties, and both repository batch fixtures.
 Tests run in an isolated build directory, so they do not leave database files in the source tree.
+
+To run the same AddressSanitizer and UndefinedBehaviorSanitizer gate used by CI:
+
+```bash
+cmake -S . -B build-sanitized \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DBUILD_TESTING=ON \
+  -DSQL_ENABLE_SANITIZERS=ON \
+  -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+cmake --build build-sanitized --parallel
+ctest --test-dir build-sanitized --output-on-failure
+```
 
 ## Run the CLI
 
@@ -62,6 +74,7 @@ Tests run in an isolated build directory, so they do not leave database files in
 
 Type `end` to exit and `cls` to clear the terminal.
 The CLI writes each table to `<table>.bin` and `<table>_fields.bin` in the current working directory.
+It reports missing tables, invalid projections, wrong row arity, duplicate schemas, malformed filters, and corrupt fixed-width files without terminating the session.
 
 Example session:
 
@@ -84,6 +97,19 @@ select <* | field [, field ...]> from <table>
 ```
 
 Quote values that contain spaces, such as `"Mary Ann"`.
+Quoted values may contain spaces, numbers, and punctuation, but escaped double quotes are not supported.
+
+## Persistence boundaries
+
+- Tables contain between 1 and 64 uniquely named fields.
+- Identifiers contain letters, digits, and underscores and cannot start with a digit.
+- Each stored field occupies one zero-padded 100-byte slot.
+- An insert must provide exactly one value per field.
+- Values longer than 100 bytes are rejected before a write.
+- Existing tables cannot be overwritten by another `CREATE TABLE` command.
+- Partial rows and invalid schema metadata fail closed when a table is opened.
+
+The fixed-width layout is intentionally simple and is not a transactional or crash-recovery format.
 
 ## License
 

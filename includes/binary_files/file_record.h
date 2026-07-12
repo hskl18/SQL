@@ -4,23 +4,21 @@
 #include <iostream>  // cout, endl
 #include <iomanip>   // setw, right
 #include <fstream>   // fstream
-#include <cstring>   // strncpy
 #include <vector>    // vector
-#include <memory>    // unique_ptr
+#include <cstddef>
 
 using namespace std;
 
 class FileRecord{
 public:
+    static constexpr std::size_t MAX_VALUE_LENGTH = 100;
     // When construct a FileRecord, it's either empty or it contains a word
     FileRecord(){}
-    FileRecord(string s);
-    FileRecord(char str[]);
-    FileRecord(vector<string> v);
+    explicit FileRecord(vector<string> values);
 
     long write(fstream& outs);
     long read(fstream& ins, long recno);
-    vector<char*> get_records();
+    std::size_t encoded_size() const { return MAX_VALUE_LENGTH * _records.size(); }
     vector<string> get_records_string(){ return this->_records;}
 
     int column_size() { return this->_records.size(); }
@@ -28,11 +26,9 @@ public:
     void resize(int size) { this->_records.resize(size); }
 
     friend ostream& operator << (ostream& outs, const FileRecord& r) {
-        int i = 0;
-        while (r._records[i][0] != '\0')
-        {
-            outs << setw(MAX / 4) << right << r._records[i];
-            i++;
+        for (const auto& record : r._records) {
+            if (record.empty()) break;
+            outs << setw(MAX / 4) << right << record;
         }
         return outs;
         // return outs << setw(MAX / 4) << right << r._records[0] << setw(MAX / 4) << right << r._records[1] << setw(MAX / 4) << right << r._records[2];
@@ -40,7 +36,7 @@ public:
 
 private:
     // The maximum size of the record
-    static const int MAX = 100;
+    static const int MAX = static_cast<int>(MAX_VALUE_LENGTH);
     // The record vector
     vector<string> _records;
 

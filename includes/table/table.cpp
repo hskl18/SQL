@@ -1,5 +1,9 @@
 #include "table.h"
 
+#include <filesystem>
+#include <limits>
+#include <stdexcept>
+
 // Default constructor for SELECT queries
 Table::Table() {
     numRecords = 0;
@@ -17,6 +21,21 @@ string Table::create_table(const string& table_name, const vector<string>& field
 Table::Table(const string& table_name, const vector<string>& field_names) : Table() {
     string table_file = table_name + ".bin";
     string field_file = table_name + "_fields.bin";
+    if (file_exists(table_file.c_str()) || file_exists(field_file.c_str())) {
+        throw std::runtime_error("Table already exists: " + table_name);
+    }
+    if (field_names.empty() || field_names.size() > MAX_FIELDS) {
+        throw std::invalid_argument("A table must have between 1 and 64 fields");
+    }
+    std::set<string> unique_fields;
+    for (const auto& field : field_names) {
+        if (field.empty() || field.size() > FileRecord::MAX_VALUE_LENGTH) {
+            throw std::invalid_argument("Field names must be between 1 and 100 bytes");
+        }
+        if (!unique_fields.insert(field).second) {
+            throw std::invalid_argument("Duplicate field name: " + field);
+        }
+    }
     tableName = table_name;
     fieldNames = field_names;
     selectedFields = field_names;
@@ -52,6 +71,9 @@ Table::Table(const string& table_name, const vector<string>& field_names) : Tabl
 Table::Table(const string& table_name) : Table() {
     string table_file = table_name + ".bin";
     string field_file = table_name + "_fields.bin";
+    if (!file_exists(table_file.c_str()) || !file_exists(field_file.c_str())) {
+        throw std::runtime_error("Table does not exist: " + table_name);
+    }
     tableName = table_name;
 
     fstream f;
@@ -60,13 +82,31 @@ Table::Table(const string& table_name) : Table() {
     // Determine the fields
     open_fileRW(f, field_file.c_str());
     r.resize(1);
-    // Get the entry size first
-    r.read(f, 0);
-    int size = stoi(r.get_records_string()[0]);
+    if (r.read(f, 0) != static_cast<long>(r.encoded_size())) {
+        throw std::runtime_error("Field metadata is incomplete for table: " + table_name);
+    }
+    const string raw_size = r.get_records_string()[0];
+    std::size_t parsed = 0;
+    unsigned long raw_count = 0;
+    try {
+        raw_count = std::stoul(raw_size, &parsed);
+    } catch (const std::exception&) {
+        throw std::runtime_error("Field metadata is invalid for table: " + table_name);
+    }
+    if (parsed != raw_size.size() || raw_count < 1 || raw_count > MAX_FIELDS) {
+        throw std::runtime_error("Field count is invalid for table: " + table_name);
+    }
+    const auto size = static_cast<std::size_t>(raw_count);
     r.resize(size + 1);
+    if (std::filesystem::file_size(field_file) != r.encoded_size()) {
+        throw std::runtime_error("Field metadata size is invalid for table: " + table_name);
+    }
 
     // Read the field names
-    r.read(f, 0);
+    f.clear();
+    if (r.read(f, 0) != static_cast<long>(r.encoded_size())) {
+        throw std::runtime_error("Field metadata is incomplete for table: " + table_name);
+    }
     vector<string> field_names = r.get_records_string();
     auto it = field_names.begin();
     // Exclude the size mark
@@ -76,21 +116,29 @@ Table::Table(const string& table_name) : Table() {
     selectedFields = field_names;
     f.close();
 
+    std::set<string> unique_fields;
+    for (const auto& field : fieldNames) {
+        if (field.empty() || !unique_fields.insert(field).second) {
+            throw std::runtime_error("Field metadata contains invalid names for table: " + table_name);
+        }
+    }
+
     for (std::size_t i = 0; i < fieldNames.size(); ++i) {
         fieldNameMap[fieldNames[i]] = i;
     }
 
     // Resize the vector
     r.resize(fieldNames.size());
+    const auto file_bytes = std::filesystem::file_size(table_file);
+    if (file_bytes % r.encoded_size() != 0) {
+        throw std::runtime_error("Record file contains a partial row for table: " + table_name);
+    }
     open_fileRW(f, table_file.c_str());
 
     // Read every record
-    for (long i = 0; r.read(f, i) > 0; ++i) {
-        // Read ith entry
-        long bytes = r.read(f, i);
-        if (bytes == 0) {
-            break;
-        }
+    for (long i = 0;; ++i) {
+        const long bytes = r.read(f, i);
+        if (bytes == 0) break;
         // Increase the number of records
         ++numRecords;
 
@@ -109,21 +157,19 @@ Table::Table(const string& table_name) : Table() {
     f.close();
 }
 
-Table& Table::operator=(const Table& RHS){
-    if (this == &RHS) return *this;
-    tableName = RHS.tableName;
-    cache = RHS.cache;
-    recordIndices = RHS.recordIndices;
-    printQueue = RHS.printQueue;
-    fieldNames = RHS.fieldNames;
-    selectedFields = RHS.selectedFields;
-    numRecords = RHS.numRecords;
-    return *this;
-}
-
-
 // Function to insert data into the table
 string Table::insert_into(const vector<string>& field_values) {
+    if (field_values.size() != fieldNames.size()) {
+        throw std::invalid_argument(
+            "Expected " + std::to_string(fieldNames.size()) +
+            " values, received " + std::to_string(field_values.size())
+        );
+    }
+    for (const auto& value : field_values) {
+        if (value.size() > FileRecord::MAX_VALUE_LENGTH) {
+            throw std::length_error("Values must not exceed 100 bytes");
+        }
+    }
     // Insert data into binary file
     fstream f;
     string table_file = tableName + ".bin";
@@ -178,8 +224,9 @@ ostream& operator<<(ostream& outs, const Table& print_me){
 
 // Helper function to select records based on a given condition
 vector<long> Table::selectHelp(const string& field_name, const string& op, const string& field_value) {
-    // If the cache does not contain the field_name, return an empty vector
-    if (!cache.contains(field_name)) {return {};}
+    if (!cache.contains(field_name)) {
+        throw std::invalid_argument("Unknown field: " + field_name);
+    }
         // If the operation is "=", return the record indices for the matching field_value
     else if (op == "=" && cache[field_name].contains(field_value)) {
         return cache[field_name][field_value];
@@ -219,6 +266,7 @@ vector<long> Table::selectHelp(const string& field_name, const string& op, const
 
 Table Table::select(const vector<string>& selected_fields, const string& field_name, const string& op, const string& field_value){
     Table temp;
+    validate_projection(selected_fields);
 
     // select all fields
     if (selected_fields.empty() || selected_fields[0] == "*"){
@@ -259,7 +307,6 @@ Table Table::select(const vector<string>& selected_fields, const string& field_n
                 temp.printQueue += entry[i];
             }
     }
-    cout << "print:" << temp.printQueue << endl;
     f.close();
 
     return temp;
@@ -272,20 +319,29 @@ Table Table::select(const vector<string>& selected_fields, const vector<string>&
 
     ShuntingYard sy(infix);
     Queue<Token*> postfix = sy.postfix();
-    Table temp = select(selected_fields, postfix);
-
-    if (!infix.empty()){
+    const auto release_tokens = [&infix]() {
+        if (infix.empty()) return;
         typename Queue<Token*>::Iterator it;
-        for (it = infix.begin(); it != infix.end(); ++it){
-            delete *it;
-        }
+        for (it = infix.begin(); it != infix.end(); ++it) delete *it;
         infix.clear();
+    };
+    if (sy.is_error()) {
+        release_tokens();
+        throw std::invalid_argument("Invalid parenthesis structure in WHERE clause");
     }
-    return temp;
+    try {
+        Table temp = select(selected_fields, postfix);
+        release_tokens();
+        return temp;
+    } catch (...) {
+        release_tokens();
+        throw;
+    }
 }
 
 Table Table::select(const vector<string>& selected_fields, const Queue<Token*>& expression){
     Table temp;
+    validate_projection(selected_fields);
 
     // select all fields
     if (selected_fields.empty() || selected_fields[0] == "*"){
@@ -334,6 +390,15 @@ Table Table::select(const vector<string>& selected_fields, const Queue<Token*>& 
     return temp;
 }
 
+void Table::validate_projection(const vector<string>& fields) const {
+    if (fields.empty() || (fields.size() == 1 && fields[0] == "*")) return;
+    for (const auto& field : fields) {
+        if (!fieldNameMap.contains(field)) {
+            throw std::invalid_argument("Unknown selected field: " + field);
+        }
+    }
+}
+
 // Function to evaluate the postfix expression and return the record indices that meet the conditions
 vector<long> Table::Eval(const Queue<Token*>& postfix) {
     Stack<Token*> s;
@@ -351,6 +416,9 @@ vector<long> Table::Eval(const Queue<Token*>& postfix) {
         }
             // If the token is a relational operator, select records from the cache
         else if (token->token_type() == TOKEN_RELATIONAL) {
+            if (s.size() < 2) {
+                throw std::invalid_argument("Malformed relational expression");
+            }
             string relational_op = token->token_string();
             string field_value = s.pop()->token_string(); // Pop the field_value first
             string field_name = s.pop()->token_string();  // Pop the field_name second
@@ -361,6 +429,9 @@ vector<long> Table::Eval(const Queue<Token*>& postfix) {
         }
             // If the token is a logical operator, perform set operations on the record indices
         else if (token->token_type() == TOKEN_LOGICAL) {
+            if (indices.size() < 2) {
+                throw std::invalid_argument("Malformed logical expression");
+            }
             vector<long> first = indices.pop();
             vector<long> second = indices.pop();
 
@@ -380,5 +451,8 @@ vector<long> Table::Eval(const Queue<Token*>& postfix) {
     }
 
     // Return the final result (the record indices that meet the conditions)
+    if (!s.empty() || indices.size() != 1) {
+        throw std::invalid_argument("Malformed WHERE expression");
+    }
     return indices.top();
 }

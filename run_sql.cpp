@@ -10,9 +10,10 @@ void displayInstructions() {
 
 void clearScreen() {
 #ifdef _WIN32
-    system("cls");
+    const int result = system("cls");
+    if (result != 0) cerr << "Unable to clear the terminal." << endl;
 #else
-    system("clear");
+    cout << "\033[2J\033[H" << flush;
 #endif
 }
 
@@ -36,7 +37,7 @@ int main() {
         Table tb = sql.command(input);
 
         if (sql.is_error()) {
-            cout << "Error: Unable to process the command." << endl;
+            cout << "Error: " << sql.last_error() << endl;
             continue;
         }
 

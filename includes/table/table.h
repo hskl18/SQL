@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector> // vector
 #include <vector>
+#include <stdexcept>
 
 #include "../binary_files/file_record.h"
 #include "../binary_files/utilities.h"
@@ -95,8 +96,9 @@ public:
     Table();
     Table(const string& table_name);
     Table(const string& table_name, const vector<string>& fieldNames);
-    Table& operator=(const Table& RHS);
-    ~Table() {}
+    Table(const Table&) = default;
+    Table& operator=(const Table&) = default;
+    ~Table() = default;
 
     // SQL: CREATE TABLE
     string create_table(const string& tableName, const vector<string>& fieldNames);
@@ -121,6 +123,7 @@ public:
     // Get the number of records in the table
     inline long record_count() const { return select_recnos().size(); }
 private:
+    static constexpr std::size_t MAX_FIELDS = 64;
     // iterator typedef
     typedef MMap<string, long>::Iterator mmap_iter;
     // title of the table
@@ -160,6 +163,7 @@ private:
 
     vector<long> selectHelp(const string& field_name, const string& op, const string& field_value); // change name
     vector<long> Eval(const Queue<Token*>& eva);
+    void validate_projection(const vector<string>& fields) const;
 //
     static vector<long> get_record_indices(const mmap_iter& begin, const mmap_iter& end){
         vector<long> res;
