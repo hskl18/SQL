@@ -31,7 +31,7 @@ long FileRecord::write(fstream &outs) {
 }
 // Write the record to the end of the file
 
-long FileRecord::read(fstream &ins, long recno) {
+long FileRecord::read(istream &ins, long recno) {
     if (_records.empty() || recno < 0) {
         throw std::invalid_argument("Record shape and number must be valid");
     }

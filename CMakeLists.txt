@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(SQLInCPP VERSION 1.0.0 LANGUAGES CXX)
+project(SQLInCPP VERSION 2.0.0 LANGUAGES CXX)
+
+if(NOT UNIX)
+    message(FATAL_ERROR "Storage format v2 requires POSIX file and process primitives")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +26,8 @@ set(SQL_CORE_SOURCES
     includes/parser/parser.cpp
     includes/shunting_yard/shunting_yard.cpp
     includes/sql/sql.cpp
+    includes/storage/page_buffer.cpp
+    includes/storage/storage_v2.cpp
     includes/table/table.cpp
     includes/tokenizer/ftokenize.cpp
     includes/tokenizer/state_machine_functions.cpp
@@ -29,7 +35,15 @@ set(SQL_CORE_SOURCES
 )
 
 add_library(sql_core STATIC ${SQL_CORE_SOURCES})
-target_include_directories(sql_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/includes/version.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/version.h"
+    @ONLY
+)
+target_include_directories(sql_core PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+)
 
 function(sql_enable_warnings target)
     if(MSVC)
@@ -44,6 +58,10 @@ sql_enable_warnings(sql_core)
 add_executable(run_sql run_sql.cpp)
 target_link_libraries(run_sql PRIVATE sql_core)
 sql_enable_warnings(run_sql)
+
+add_executable(sql_migrate_v1 tools/sql_migrate_v1.cpp)
+target_link_libraries(sql_migrate_v1 PRIVATE sql_core)
+sql_enable_warnings(sql_migrate_v1)
 
 include(CTest)
 
@@ -72,4 +90,51 @@ if(BUILD_TESTING)
     target_link_libraries(bplustree_tests PRIVATE sql_core)
     sql_enable_warnings(bplustree_tests)
     add_test(NAME bplustree_evidence COMMAND bplustree_tests)
+
+    add_executable(storage_v2_tests tests/storage_v2_tests.cpp)
+    target_link_libraries(storage_v2_tests PRIVATE sql_core)
+    sql_enable_warnings(storage_v2_tests)
+    add_test(NAME storage_v2_integrity COMMAND storage_v2_tests)
+
+    add_executable(storage_crash_worker tests/storage_crash_worker.cpp)
+    target_link_libraries(storage_crash_worker PRIVATE sql_core)
+    sql_enable_warnings(storage_crash_worker)
+
+    add_executable(storage_crash_tests tests/storage_crash_tests.cpp)
+    target_link_libraries(storage_crash_tests PRIVATE sql_core)
+    target_compile_definitions(storage_crash_tests PRIVATE
+        STORAGE_CRASH_WORKER_PATH="$<TARGET_FILE:storage_crash_worker>"
+        RUN_SQL_PATH="$<TARGET_FILE:run_sql>"
+    )
+    add_dependencies(storage_crash_tests storage_crash_worker run_sql)
+    sql_enable_warnings(storage_crash_tests)
+    add_test(NAME storage_crash_recovery COMMAND storage_crash_tests)
+    set_tests_properties(storage_crash_recovery PROPERTIES TIMEOUT 60 LABELS crash)
+
+    add_executable(migration_tests tests/migration_tests.cpp)
+    target_link_libraries(migration_tests PRIVATE sql_core)
+    target_compile_definitions(migration_tests PRIVATE
+        MIGRATION_TOOL_PATH="$<TARGET_FILE:sql_migrate_v1>"
+    )
+    add_dependencies(migration_tests sql_migrate_v1)
+    sql_enable_warnings(migration_tests)
+    add_test(NAME migration_v1_equivalence COMMAND migration_tests)
+
+    add_executable(cli_tests tests/cli_tests.cpp)
+    target_link_libraries(cli_tests PRIVATE sql_core)
+    target_compile_definitions(cli_tests PRIVATE
+        RUN_SQL_PATH="$<TARGET_FILE:run_sql>"
+    )
+    add_dependencies(cli_tests run_sql)
+    sql_enable_warnings(cli_tests)
+    add_test(NAME cli_storage_inspection COMMAND cli_tests)
+
+    add_test(NAME cli_version COMMAND run_sql --version)
+    set_tests_properties(cli_version PROPERTIES
+        PASS_REGULAR_EXPRESSION "SQL in C\\+\\+ 2.0.0 \\(storage format 2\\)"
+    )
+    add_test(NAME migration_cli_version COMMAND sql_migrate_v1 --version)
+    set_tests_properties(migration_cli_version PROPERTIES
+        PASS_REGULAR_EXPRESSION "sql_migrate_v1 2.0.0 \\(storage format 2\\)"
+    )
 endif()
