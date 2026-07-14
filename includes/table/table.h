@@ -29,6 +29,7 @@
 #include "../shunting_yard/rightparen.h"
 #include "../shunting_yard/token.h"
 #include "../shunting_yard/tokenstr.h"
+#include "../storage/storage_v2.h"
 
 using namespace std;
 
@@ -140,6 +141,8 @@ private:
     Map<string, long> fieldNameMap; // map field name to entry indices
 
     vector<string> printQueue;
+    vector<vector<string>> storedRows;
+    bool usesV2Storage = false;
 
     static inline void allocate_tokens_memory(const vector<string>& a, Queue<Token*>& q){
         for (auto toke : a){

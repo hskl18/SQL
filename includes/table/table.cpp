@@ -21,7 +21,9 @@ string Table::create_table(const string& table_name, const vector<string>& field
 Table::Table(const string& table_name, const vector<string>& field_names) : Table() {
     string table_file = table_name + ".bin";
     string field_file = table_name + "_fields.bin";
-    if (file_exists(table_file.c_str()) || file_exists(field_file.c_str())) {
+    const string v2_file = storage_v2::database_path(table_name);
+    if (file_exists(table_file.c_str()) || file_exists(field_file.c_str()) ||
+        storage_v2::exists(v2_file)) {
         throw std::runtime_error("Table already exists: " + table_name);
     }
     if (field_names.empty() || field_names.size() > MAX_FIELDS) {
@@ -39,25 +41,8 @@ Table::Table(const string& table_name, const vector<string>& field_names) : Tabl
     tableName = table_name;
     fieldNames = field_names;
     selectedFields = field_names;
-
-    fstream f;
-
-    // Record the number of fields
-    open_fileW(f, field_file.c_str());
-    vector<string> mark;
-    int size = fieldNames.size();
-    string mark_size = to_string(size);
-    mark.push_back(mark_size);
-    for (const auto & fieldName : fieldNames) {
-        mark.push_back(fieldName);
-    }
-    FileRecord r(mark);
-    r.write(f);
-    f.close();
-
-    // Create record file
-    open_fileW(f, table_file.c_str());
-    f.close();
+    storage_v2::create_table(v2_file, fieldNames);
+    usesV2Storage = true;
     recordIndices.clear();
 
     // Initialize fieldNameMap and cache
@@ -71,16 +56,39 @@ Table::Table(const string& table_name, const vector<string>& field_names) : Tabl
 Table::Table(const string& table_name) : Table() {
     string table_file = table_name + ".bin";
     string field_file = table_name + "_fields.bin";
-    if (!file_exists(table_file.c_str()) || !file_exists(field_file.c_str())) {
+    const string v2_file = storage_v2::database_path(table_name);
+    const bool has_v2 = storage_v2::exists(v2_file);
+    if (!has_v2 && (!file_exists(table_file.c_str()) || !file_exists(field_file.c_str()))) {
         throw std::runtime_error("Table does not exist: " + table_name);
     }
     tableName = table_name;
 
-    fstream f;
+    if (has_v2) {
+        const auto loaded = storage_v2::open_table(v2_file);
+        fieldNames = loaded.fields;
+        selectedFields = loaded.fields;
+        storedRows = loaded.rows;
+        usesV2Storage = true;
+        if (storedRows.size() > static_cast<std::size_t>(std::numeric_limits<long>::max())) {
+            throw std::runtime_error("Table contains too many records for this build");
+        }
+        numRecords = static_cast<long>(storedRows.size());
+        for (std::size_t field = 0; field < fieldNames.size(); ++field) {
+            fieldNameMap[fieldNames[field]] = static_cast<long>(field);
+        }
+        for (std::size_t row = 0; row < storedRows.size(); ++row) {
+            recordIndices.push_back(static_cast<long>(row));
+            printQueue += storedRows[row];
+        }
+        return;
+    }
+
+    ifstream f;
     FileRecord r;
 
     // Determine the fields
-    open_fileRW(f, field_file.c_str());
+    f.open(field_file, ios::in | ios::binary);
+    if (!f.is_open()) throw std::runtime_error("File could not be opened: " + field_file);
     r.resize(1);
     if (r.read(f, 0) != static_cast<long>(r.encoded_size())) {
         throw std::runtime_error("Field metadata is incomplete for table: " + table_name);
@@ -133,7 +141,8 @@ Table::Table(const string& table_name) : Table() {
     if (file_bytes % r.encoded_size() != 0) {
         throw std::runtime_error("Record file contains a partial row for table: " + table_name);
     }
-    open_fileRW(f, table_file.c_str());
+    f.open(table_file, ios::in | ios::binary);
+    if (!f.is_open()) throw std::runtime_error("File could not be opened: " + table_file);
 
     // Read every record
     for (long i = 0;; ++i) {
@@ -144,6 +153,7 @@ Table::Table(const string& table_name) : Table() {
 
         // Put the ith_entry into cache
         vector<string> ith_entry = r.get_records_string();
+        storedRows.push_back(ith_entry);
         for (std::size_t ith_entry_walker = 0; ith_entry_walker < ith_entry.size(); ++ith_entry_walker) {
             string field_value = ith_entry[ith_entry_walker];
             long index = i;
@@ -170,19 +180,13 @@ string Table::insert_into(const vector<string>& field_values) {
             throw std::length_error("Values must not exceed 100 bytes");
         }
     }
-    // Insert data into binary file
-    fstream f;
-    string table_file = tableName + ".bin";
-
-    // Open the file in read/write mode
-    open_fileRW(f, table_file.c_str());
-    // Create a new FileRecord with the given field_values
-    FileRecord r(field_values);
-    // Write the record to the binary file and obtain its index
-    long index = r.write(f);
-
-    // Close the file
-    f.close();
+    if (!usesV2Storage) {
+        throw std::runtime_error(
+            "Storage format v1 is read-only; run sql_migrate_v1 before inserting"
+        );
+    }
+    storage_v2::insert_row(storage_v2::database_path(tableName), field_values);
+    const long index = numRecords;
 
     // Insert the record into the cache
     for (std::size_t i = 0; i < field_values.size(); ++i) {
@@ -198,6 +202,7 @@ string Table::insert_into(const vector<string>& field_values) {
     recordIndices.push_back(index);
     // Add field_values to the printQueue for printing
     printQueue += field_values;
+    storedRows.push_back(field_values);
     // Increment the number of records in the table
     numRecords++;
     return "insert success";
@@ -224,8 +229,25 @@ ostream& operator<<(ostream& outs, const Table& print_me){
 
 // Helper function to select records based on a given condition
 vector<long> Table::selectHelp(const string& field_name, const string& op, const string& field_value) {
-    if (!cache.contains(field_name)) {
+    if (!fieldNameMap.contains(field_name)) {
         throw std::invalid_argument("Unknown field: " + field_name);
+    }
+    if (usesV2Storage) {
+        const auto records = storage_v2::query_index(
+            storage_v2::database_path(tableName),
+            static_cast<std::size_t>(fieldNameMap[field_name]),
+            op,
+            field_value
+        );
+        vector<long> converted;
+        converted.reserve(records.size());
+        for (const auto record : records) {
+            if (record > static_cast<std::uint64_t>(std::numeric_limits<long>::max())) {
+                throw std::runtime_error("Record identifier exceeds the public API range");
+            }
+            converted.push_back(static_cast<long>(record));
+        }
+        return converted;
     }
         // If the operation is "=", return the record indices for the matching field_value
     else if (op == "=" && cache[field_name].contains(field_value)) {
@@ -290,25 +312,17 @@ Table Table::select(const vector<string>& selected_fields, const string& field_n
     recordIndices = temp.recordIndices;
     temp.numRecords = numRecords;
 
-    // read the entries
-    fstream f;
-    string table_file = temp.tableName + ".bin";
-    open_fileRW(f, table_file.c_str());
     for (auto idx : temp.recordIndices){
-        FileRecord r;
-        r.resize(fieldNames.size());
-        long byte = r.read(f, idx);
-
-        if (byte == 0) break;
-        vector<string> entry = r.get_records_string();
+        if (idx < 0 || static_cast<std::size_t>(idx) >= storedRows.size()) {
+            throw std::runtime_error("Selected record identifier is out of range");
+        }
+        const vector<string>& entry = storedRows[static_cast<std::size_t>(idx)];
         for (std::size_t i = 0; i < entry.size(); ++i)
             if (contains(temp.selectedFields, fieldNames[i]))
             {
                 temp.printQueue += entry[i];
             }
     }
-    f.close();
-
     return temp;
 }
 
@@ -372,20 +386,14 @@ Table Table::select(const vector<string>& selected_fields, const Queue<Token*>& 
         }
     }
 
-    fstream f;
-    string table_file = temp.tableName + ".bin";
-    open_fileRW(f, table_file.c_str());
     for (auto idx : temp.recordIndices){
-        FileRecord r;
-        r.resize(fieldNames.size());
-        long byte = r.read(f, idx);
-
-        if (byte == 0) break;
-        vector<string> entry = r.get_records_string();
+        if (idx < 0 || static_cast<std::size_t>(idx) >= storedRows.size()) {
+            throw std::runtime_error("Selected record identifier is out of range");
+        }
+        const vector<string>& entry = storedRows[static_cast<std::size_t>(idx)];
         for (std::size_t i = 0; i < entry.size(); ++i)
             if (contains(temp.fieldNames, fieldNames[i])) temp.printQueue += entry[i];
     }
-    f.close();
     recordIndices = temp.recordIndices;
     return temp;
 }

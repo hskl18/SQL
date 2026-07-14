@@ -1,4 +1,5 @@
 #include "includes/sql/sql.h"
+#include "includes/storage/storage_v2.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -47,6 +48,8 @@ void expect_error(SQL& sql, const std::string& message_fragment) {
 void remove_table(const std::string& name) {
     std::filesystem::remove(name + ".bin");
     std::filesystem::remove(name + "_fields.bin");
+    std::filesystem::remove(name + ".sql2");
+    std::filesystem::remove(name + ".sql2-wal");
 }
 
 void test_batch_executes_repository_fixture() {
@@ -139,12 +142,13 @@ void test_command_failures_do_not_terminate_or_mutate_storage() {
     SQL sql;
     sql.command("create table integrity_test fields first, last");
     expect_true(!sql.is_error(), "valid create should succeed");
-    const auto empty_size = std::filesystem::file_size("integrity_test.bin");
+    const auto storage_path = storage_v2::database_path("integrity_test");
+    const auto empty_size = std::filesystem::file_size(storage_path);
 
     sql.command("insert into integrity_test values only_one");
     expect_error(sql, "Expected 2 values, received 1");
     expect_equal(
-        static_cast<long>(std::filesystem::file_size("integrity_test.bin")),
+        static_cast<long>(std::filesystem::file_size(storage_path)),
         static_cast<long>(empty_size),
         "short insert must not change storage"
     );
@@ -152,30 +156,18 @@ void test_command_failures_do_not_terminate_or_mutate_storage() {
     sql.command("insert into integrity_test values one, two, three");
     expect_error(sql, "Expected 2 values, received 3");
     expect_equal(
-        static_cast<long>(std::filesystem::file_size("integrity_test.bin")),
+        static_cast<long>(std::filesystem::file_size(storage_path)),
         static_cast<long>(empty_size),
         "long insert must not change storage"
     );
 
     sql.command("insert into integrity_test values Ada, Lovelace");
     expect_true(!sql.is_error(), "valid insert should succeed after errors");
-    expect_equal(
-        static_cast<long>(std::filesystem::file_size("integrity_test.bin")),
-        200,
-        "two-field row should use two fixed-width slots"
+    const auto stored = storage_v2::open_table(storage_path);
+    expect_true(
+        stored.rows == std::vector<std::vector<std::string>>({{"Ada", "Lovelace"}}),
+        "v2 row should reopen with exact values"
     );
-    {
-        std::ifstream stored("integrity_test.bin", std::ios::binary);
-        std::vector<char> bytes(200);
-        stored.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-        expect_true(stored.gcount() == 200, "stored row should be complete");
-        expect_true(
-            std::all_of(bytes.begin() + 3, bytes.begin() + 100, [](char byte) {
-                return byte == '\0';
-            }),
-            "short values should be deterministically zero padded"
-        );
-    }
 
     sql.command("create table integrity_test fields replacement");
     expect_error(sql, "already exists");
@@ -217,24 +209,25 @@ void test_schema_value_and_corrupt_file_boundaries() {
     const std::string exact_value(100, 'x');
     sql.command("insert into boundary_test values \"" + exact_value + "\"");
     expect_true(!sql.is_error(), "100-byte value should fit the fixed slot");
-    const auto valid_size = std::filesystem::file_size("boundary_test.bin");
+    const auto storage_path = storage_v2::database_path("boundary_test");
+    const auto valid_size = std::filesystem::file_size(storage_path);
 
     const std::string oversized_value(101, 'y');
     sql.command("insert into boundary_test values \"" + oversized_value + "\"");
     expect_error(sql, "must not exceed 100 bytes");
     expect_equal(
-        static_cast<long>(std::filesystem::file_size("boundary_test.bin")),
+        static_cast<long>(std::filesystem::file_size(storage_path)),
         static_cast<long>(valid_size),
         "oversized value must not change storage"
     );
 
     {
-        std::ofstream corrupt("boundary_test.bin", std::ios::binary | std::ios::app);
+        std::ofstream corrupt(storage_path, std::ios::binary | std::ios::app);
         corrupt.put('x');
     }
     SQL corrupt_reader;
     corrupt_reader.command("select * from boundary_test");
-    expect_error(corrupt_reader, "partial row");
+    expect_error(corrupt_reader, "complete page image");
 
     remove_table("boundary_test");
 }
@@ -273,25 +266,25 @@ void test_schema_metadata_size_must_match_exactly() {
     sql.command("create table metadata_extra_test fields value");
     {
         std::ofstream extra(
-            "metadata_extra_test_fields.bin",
+            storage_v2::database_path("metadata_extra_test"),
             std::ios::binary | std::ios::app
         );
         extra.put('x');
     }
     SQL extra_reader;
     extra_reader.command("select * from metadata_extra_test");
-    expect_error(extra_reader, "metadata size is invalid");
+    expect_error(extra_reader, "complete page image");
 
     sql.command("create table metadata_short_test fields value");
-    const auto metadata_size =
-        std::filesystem::file_size("metadata_short_test_fields.bin");
+    const auto metadata_path = storage_v2::database_path("metadata_short_test");
+    const auto metadata_size = std::filesystem::file_size(metadata_path);
     std::filesystem::resize_file(
-        "metadata_short_test_fields.bin",
+        metadata_path,
         metadata_size - 1
     );
     SQL short_reader;
     short_reader.command("select * from metadata_short_test");
-    expect_error(short_reader, "metadata size is invalid");
+    expect_error(short_reader, "complete page image");
 
     remove_table("metadata_extra_test");
     remove_table("metadata_short_test");

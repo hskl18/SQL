@@ -1,4 +1,8 @@
 #include "includes/sql/sql.h"
+#include "includes/storage/storage_v2.h"
+#include "version.h"
+
+#include <exception>
 
 using namespace std;
 
@@ -17,7 +21,25 @@ void clearScreen() {
 #endif
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc == 2 && string(argv[1]) == "--version") {
+        cout << "SQL in C++ " << SQL_IN_CPP_VERSION
+             << " (storage format " << storage_v2::FORMAT_VERSION << ")" << endl;
+        return 0;
+    }
+    if (argc == 3 && string(argv[1]) == "--inspect-storage") {
+        try {
+            cout << storage_v2::describe(storage_v2::database_path(argv[2]));
+            return 0;
+        } catch (const exception& error) {
+            cerr << "Error: " << error.what() << endl;
+            return 1;
+        }
+    }
+    if (argc != 1) {
+        cerr << "Usage: run_sql [--version | --inspect-storage <table>]" << endl;
+        return 2;
+    }
     SQL sql;
     displayInstructions();
     while (true) {

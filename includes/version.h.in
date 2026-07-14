@@ -1,0 +1,6 @@
+#ifndef SQL_IN_CPP_VERSION_H
+#define SQL_IN_CPP_VERSION_H
+
+#define SQL_IN_CPP_VERSION "@PROJECT_VERSION@"
+
+#endif

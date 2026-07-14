@@ -17,7 +17,7 @@ public:
     explicit FileRecord(vector<string> values);
 
     long write(fstream& outs);
-    long read(fstream& ins, long recno);
+    long read(istream& ins, long recno);
     std::size_t encoded_size() const { return MAX_VALUE_LENGTH * _records.size(); }
     vector<string> get_records_string(){ return this->_records;}
 
