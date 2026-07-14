@@ -104,8 +104,9 @@ if(BUILD_TESTING)
     target_link_libraries(storage_crash_tests PRIVATE sql_core)
     target_compile_definitions(storage_crash_tests PRIVATE
         STORAGE_CRASH_WORKER_PATH="$<TARGET_FILE:storage_crash_worker>"
+        RUN_SQL_PATH="$<TARGET_FILE:run_sql>"
     )
-    add_dependencies(storage_crash_tests storage_crash_worker)
+    add_dependencies(storage_crash_tests storage_crash_worker run_sql)
     sql_enable_warnings(storage_crash_tests)
     add_test(NAME storage_crash_recovery COMMAND storage_crash_tests)
     set_tests_properties(storage_crash_recovery PROPERTIES TIMEOUT 60 LABELS crash)

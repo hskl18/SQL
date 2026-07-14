@@ -1,6 +1,7 @@
 #include "includes/storage/storage_v2.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +19,61 @@ void expect(bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
 }
 
+struct ProcessResult {
+    int status;
+    std::string output;
+};
+
+ProcessResult run_sql_cli(
+    const std::string& input,
+    const std::string& crash_point = "",
+    const std::string& trace_path = ""
+) {
+    std::array<int, 2> input_pipe{};
+    std::array<int, 2> output_pipe{};
+    if (::pipe(input_pipe.data()) != 0 || ::pipe(output_pipe.data()) != 0) {
+        throw std::runtime_error("pipe failed");
+    }
+    const auto process = ::fork();
+    if (process < 0) throw std::runtime_error("fork failed");
+    if (process == 0) {
+        ::close(input_pipe[1]);
+        ::close(output_pipe[0]);
+        ::dup2(input_pipe[0], STDIN_FILENO);
+        ::dup2(output_pipe[1], STDOUT_FILENO);
+        ::dup2(output_pipe[1], STDERR_FILENO);
+        ::close(input_pipe[0]);
+        ::close(output_pipe[1]);
+        if (!crash_point.empty()) ::setenv("SQL_CRASH_AT", crash_point.c_str(), 1);
+        if (!trace_path.empty()) ::setenv("SQL_CRASH_TRACE_FILE", trace_path.c_str(), 1);
+        ::execl(RUN_SQL_PATH, RUN_SQL_PATH, nullptr);
+        ::_exit(127);
+    }
+
+    ::close(input_pipe[0]);
+    ::close(output_pipe[1]);
+    const auto written = ::write(input_pipe[1], input.data(), input.size());
+    ::close(input_pipe[1]);
+    if (written != static_cast<ssize_t>(input.size())) {
+        ::close(output_pipe[0]);
+        throw std::runtime_error("unable to send SQL input");
+    }
+
+    std::string output;
+    std::array<char, 1024> buffer{};
+    while (true) {
+        const auto count = ::read(output_pipe[0], buffer.data(), buffer.size());
+        if (count <= 0) break;
+        output.append(buffer.data(), static_cast<std::size_t>(count));
+    }
+    ::close(output_pipe[0]);
+    int status = 0;
+    if (::waitpid(process, &status, 0) != process || !WIFEXITED(status)) {
+        return {-1, output};
+    }
+    return {WEXITSTATUS(status), output};
+}
+
 std::vector<std::uint8_t> read_bytes(const std::string& path) {
     std::ifstream input(path, std::ios::binary);
     input.seekg(0, std::ios::end);
@@ -31,6 +87,27 @@ std::vector<std::uint8_t> read_bytes(const std::string& path) {
 void write_bytes(const std::string& path, const std::vector<std::uint8_t>& bytes) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+void write_v1_slot(std::ofstream& output, const std::string& value) {
+    std::array<char, 100> slot{};
+    std::copy(value.begin(), value.end(), slot.begin());
+    output.write(slot.data(), static_cast<std::streamsize>(slot.size()));
+}
+
+void write_v1_table(
+    const std::string& table,
+    const std::vector<std::string>& fields,
+    const std::vector<std::vector<std::string>>& rows
+) {
+    std::ofstream schema(table + "_fields.bin", std::ios::binary | std::ios::trunc);
+    write_v1_slot(schema, std::to_string(fields.size()));
+    for (const auto& field : fields) write_v1_slot(schema, field);
+    schema.close();
+    std::ofstream data(table + ".bin", std::ios::binary | std::ios::trunc);
+    for (const auto& row : rows) {
+        for (const auto& value : row) write_v1_slot(data, value);
+    }
 }
 
 int crash_value(
@@ -118,9 +195,41 @@ std::vector<std::string> trace_points(
     return points;
 }
 
+std::vector<std::string> trace_public_create_points(
+    const std::string& table,
+    const std::string& trace_path
+) {
+    std::filesystem::remove(trace_path);
+    const auto traced = run_sql_cli(
+        "create table " + table + " fields value\nend\n",
+        "",
+        trace_path
+    );
+    expect(traced.status == 0, "public CREATE trace process should exit normally");
+    expect(traced.output.find("Error:") == std::string::npos,
+           "public CREATE trace should succeed: " + traced.output);
+    std::ifstream input(trace_path);
+    std::vector<std::string> points;
+    std::string line;
+    while (std::getline(input, line)) {
+        if (!line.empty()) points.push_back(line);
+    }
+    std::filesystem::remove(trace_path);
+    expect(!points.empty(), "public CREATE trace should enumerate crash boundaries");
+    expect(std::set<std::string>(points.begin(), points.end()).size() == points.size(),
+           "public CREATE should expose each crash boundary once");
+    return points;
+}
+
 void cleanup(const std::string& path) {
     std::filesystem::remove(path);
     std::filesystem::remove(storage_v2::wal_path(path));
+}
+
+void cleanup_public_table(const std::string& table) {
+    cleanup(storage_v2::database_path(table));
+    std::filesystem::remove(table + ".bin");
+    std::filesystem::remove(table + "_fields.bin");
 }
 
 void install_baseline(
@@ -249,6 +358,140 @@ void test_create_crash_matrix() {
     }
 }
 
+void test_public_orphan_create_wal_recovers_on_select() {
+    const std::string table = "public_create_wal_fsync";
+    const auto path = storage_v2::database_path(table);
+    cleanup(path);
+    const auto crashed = run_sql_cli(
+        "create table " + table + " fields value\nend\n",
+        "wal-fsync"
+    );
+    expect(crashed.status == 86, "public CREATE should terminate at wal-fsync");
+    expect(!std::filesystem::exists(path), "wal-fsync CREATE should not yet have a data file");
+    expect(std::filesystem::file_size(storage_v2::wal_path(path)) > 0,
+           "wal-fsync CREATE should leave a committed WAL");
+
+    const auto selected = run_sql_cli("select * from " + table + "\nend\n");
+    expect(selected.status == 0, "public SELECT process should exit normally");
+    expect(selected.output.find("Error:") == std::string::npos,
+           "public SELECT should recover the orphan CREATE WAL: " + selected.output);
+    expect(selected.output.find("Selected fields:") != std::string::npos,
+           "public SELECT should expose the recovered schema");
+    expect(selected.output.find("Record count:") != std::string::npos,
+           "public SELECT should print its record result");
+    expect(std::filesystem::exists(path), "public SELECT should materialize the database image");
+    expect(std::filesystem::file_size(storage_v2::wal_path(path)) == 0,
+           "public SELECT recovery should clear the WAL");
+    expect(storage_v2::open_table(path).rows.empty(),
+           "public SELECT should expose the complete empty table");
+    cleanup(path);
+}
+
+void test_public_create_crash_matrix() {
+    const std::string probe = "public_create_trace_probe";
+    cleanup_public_table(probe);
+    const auto points = trace_public_create_points(probe, "public-create-crash-points.txt");
+    cleanup_public_table(probe);
+    expect(std::find(points.begin(), points.end(), "wal-write") != points.end(),
+           "public CREATE matrix should cover WAL write");
+    expect(std::find(points.begin(), points.end(), "wal-fsync") != points.end(),
+           "public CREATE matrix should cover WAL fsync");
+    expect(std::find_if(points.begin(), points.end(), [](const std::string& point) {
+        return point.rfind("page-", 0) == 0;
+    }) != points.end(), "public CREATE matrix should cover page writes");
+    expect(std::find(points.begin(), points.end(), "data-fsync") != points.end(),
+           "public CREATE matrix should cover data fsync");
+    expect(std::find(points.begin(), points.end(), "wal-clear") != points.end(),
+           "public CREATE matrix should cover the committed WAL-clear boundary");
+
+    for (const auto& point : points) {
+        auto suffix = point;
+        std::replace(suffix.begin(), suffix.end(), '-', '_');
+        const auto table = "public_create_" + suffix;
+        const auto path = storage_v2::database_path(table);
+        cleanup_public_table(table);
+        const auto crashed = run_sql_cli(
+            "create table " + table + " fields value\nend\n",
+            point
+        );
+        expect(crashed.status == 86, "public CREATE should terminate at " + point);
+
+        auto selected = run_sql_cli("select * from " + table + "\nend\n");
+        if (selected.output.find("Table does not exist") != std::string::npos) {
+            const auto retried = run_sql_cli(
+                "create table " + table + " fields value\nend\n"
+            );
+            expect(retried.output.find("Error:") == std::string::npos,
+                   "old-state CREATE retry should complete recovery at " + point +
+                       ": " + retried.output);
+            selected = run_sql_cli("select * from " + table + "\nend\n");
+        }
+        expect(selected.status == 0, "public SELECT process should exit normally at " + point);
+        expect(selected.output.find("Error:") == std::string::npos,
+               "public path should expose an old-or-new recoverable state at " + point +
+                   ": " + selected.output);
+        expect(selected.output.find("Selected fields: value") != std::string::npos,
+               "public SELECT should expose the complete schema at " + point);
+        expect(std::filesystem::exists(path),
+               "public recovery should materialize the database at " + point);
+        expect(std::filesystem::file_size(storage_v2::wal_path(path)) == 0,
+               "public recovery should clear the WAL at " + point);
+        expect(storage_v2::open_table(path).rows.empty(),
+               "public recovery should expose no partial rows at " + point);
+        cleanup_public_table(table);
+    }
+}
+
+void test_public_orphan_wal_ownership_boundaries() {
+    const std::string owner = "public_wal_owner";
+    const std::string other = "public_wal_other";
+    cleanup_public_table(owner);
+    cleanup_public_table(other);
+    const auto crashed = run_sql_cli(
+        "create table " + owner + " fields value\nend\n",
+        "wal-fsync"
+    );
+    expect(crashed.status == 86, "owner CREATE should leave an orphan WAL");
+    const auto unrelated = run_sql_cli("select * from " + other + "\nend\n");
+    expect(unrelated.output.find("Table does not exist: " + other) != std::string::npos,
+           "an orphan WAL must not identify a different table");
+    expect(!std::filesystem::exists(storage_v2::database_path(owner)),
+           "opening another table must not recover the owner's WAL");
+    expect(!std::filesystem::exists(storage_v2::database_path(other)),
+           "opening another table must not create a database");
+    const auto owner_selected = run_sql_cli("select * from " + owner + "\nend\n");
+    expect(owner_selected.output.find("Error:") == std::string::npos,
+           "the exact owner path should recover its WAL");
+    cleanup_public_table(owner);
+    cleanup_public_table(other);
+
+    const std::string legacy = "public_wal_legacy";
+    cleanup_public_table(legacy);
+    const auto legacy_crash = run_sql_cli(
+        "create table " + legacy + " fields value\nend\n",
+        "wal-fsync"
+    );
+    expect(legacy_crash.status == 86, "legacy boundary should leave an orphan WAL");
+    const auto wal_before = read_bytes(storage_v2::wal_path(storage_v2::database_path(legacy)));
+    write_v1_table(legacy, {"value"}, {{"legacy"}});
+    const auto v1_data_before = read_bytes(legacy + ".bin");
+    const auto v1_schema_before = read_bytes(legacy + "_fields.bin");
+    const auto legacy_selected = run_sql_cli("select * from " + legacy + "\nend\n");
+    expect(legacy_selected.output.find("Error:") == std::string::npos,
+           "valid v1 should remain publicly readable beside an orphan WAL");
+    expect(legacy_selected.output.find("legacy") != std::string::npos,
+           "public SELECT should return the v1 row");
+    expect(!std::filesystem::exists(storage_v2::database_path(legacy)),
+           "orphan WAL recovery must not supersede v1");
+    expect(read_bytes(legacy + ".bin") == v1_data_before,
+           "orphan WAL recovery must not modify v1 rows");
+    expect(read_bytes(legacy + "_fields.bin") == v1_schema_before,
+           "orphan WAL recovery must not modify v1 schema");
+    expect(read_bytes(storage_v2::wal_path(storage_v2::database_path(legacy))) == wal_before,
+           "opening v1 must leave the conflicting orphan WAL untouched");
+    cleanup_public_table(legacy);
+}
+
 void test_wal_checksum_rejection() {
     const std::string path = "crash-wal-checksum.sql2";
     cleanup(path);
@@ -312,6 +555,12 @@ int main() {
         std::cout << "PASS: dynamic internal-split crash matrix\n";
         test_create_crash_matrix();
         std::cout << "PASS: atomic create crash matrix\n";
+        test_public_orphan_create_wal_recovers_on_select();
+        std::cout << "PASS: public orphan CREATE WAL recovery\n";
+        test_public_create_crash_matrix();
+        std::cout << "PASS: public CREATE crash matrix\n";
+        test_public_orphan_wal_ownership_boundaries();
+        std::cout << "PASS: public orphan WAL ownership boundaries\n";
         test_wal_checksum_rejection();
         std::cout << "PASS: WAL checksum rejection\n";
         test_stale_wal_rejection();

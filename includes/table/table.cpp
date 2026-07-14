@@ -58,12 +58,19 @@ Table::Table(const string& table_name) : Table() {
     string field_file = table_name + "_fields.bin";
     const string v2_file = storage_v2::database_path(table_name);
     const bool has_v2 = storage_v2::exists(v2_file);
-    if (!has_v2 && (!file_exists(table_file.c_str()) || !file_exists(field_file.c_str()))) {
+    const bool has_v1_table = file_exists(table_file.c_str());
+    const bool has_v1_fields = file_exists(field_file.c_str());
+    const auto v2_wal = storage_v2::wal_path(v2_file);
+    const bool has_orphan_v2_wal = !has_v2 && !has_v1_table && !has_v1_fields &&
+        storage_v2::exists(v2_wal) && std::filesystem::is_regular_file(v2_wal) &&
+        std::filesystem::file_size(v2_wal) != 0;
+    const bool opens_v2 = has_v2 || has_orphan_v2_wal;
+    if (!opens_v2 && (!has_v1_table || !has_v1_fields)) {
         throw std::runtime_error("Table does not exist: " + table_name);
     }
     tableName = table_name;
 
-    if (has_v2) {
+    if (opens_v2) {
         const auto loaded = storage_v2::open_table(v2_file);
         fieldNames = loaded.fields;
         selectedFields = loaded.fields;
