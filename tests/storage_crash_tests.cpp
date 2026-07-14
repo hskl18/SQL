@@ -1,5 +1,6 @@
 #include "includes/storage/storage_v2.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
