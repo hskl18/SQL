@@ -527,7 +527,9 @@ ValidatedNode validate_index_node(
         if (reader.u16() != 0) throw CorruptionError("index leaf reserved value is not zero");
         if (count == 0) throw CorruptionError("index leaf is empty");
         for (std::uint16_t i = 0; i < count; ++i) {
-            result.entries.emplace_back(reader.string(), reader.u64());
+            const auto key = reader.string();
+            const auto record_id = reader.u64();
+            result.entries.emplace_back(key, record_id);
         }
         if (reader.remaining() != 0) throw CorruptionError("index leaf has trailing bytes");
         if (!std::is_sorted(result.entries.begin(), result.entries.end())) {
@@ -737,7 +739,9 @@ LeafContents decode_leaf_contents(const Page& page) {
     std::vector<std::pair<std::string, std::uint64_t>> entries;
     entries.reserve(count);
     for (std::uint16_t index = 0; index < count; ++index) {
-        entries.emplace_back(reader.string(), reader.u64());
+        const auto key = reader.string();
+        const auto record_id = reader.u64();
+        entries.emplace_back(key, record_id);
     }
     if (reader.remaining() != 0) throw CorruptionError("index leaf has trailing bytes");
     return LeafContents{previous, std::move(entries)};
