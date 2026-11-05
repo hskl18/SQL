@@ -60,7 +60,7 @@ ctest --test-dir build --output-on-failure
 The test executables verify SQL behavior, persistent incremental B+ tree splits, stable untouched pages, WAL ordering, dynamically enumerated crash boundaries, corruption rejection, idempotent recovery, migration equivalence, maximum-width rows, CLI inspection, parser safety, and both repository batch fixtures.
 Tests run in an isolated build directory, so they do not leave database files in the source tree.
 
-To run the same AddressSanitizer and UndefinedBehaviorSanitizer gate used by CI:
+To run the tests under AddressSanitizer and UndefinedBehaviorSanitizer:
 
 ```bash
 cmake -S . -B build-sanitized \

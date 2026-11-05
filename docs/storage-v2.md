@@ -159,7 +159,7 @@ The writer performs these boundaries in order:
 The statement is acknowledged only after step 6.
 Deterministic crash injection is available at the partial-WAL, WAL-write, WAL-fsync, per-page, data-fsync, WAL-truncate, and WAL-clear boundaries.
 The crash harness uses abrupt process termination and proves recovery logic and write ordering with the kernel page cache intact.
-It does not simulate physical media failure or loss of the operating system page cache, so power-loss durability rests on the documented fsync and directory-fsync contract plus Linux and macOS CI behavior.
+It does not simulate physical media failure or loss of the operating system page cache, so power-loss durability rests on the documented fsync and directory-fsync contract.
 
 ## Recovery
 

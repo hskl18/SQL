@@ -52,5 +52,5 @@ The command-line process reads and writes table files in its current working dir
 ## Evidence
 
 The CTest suite covers end-to-end SQL behavior, parser safety, persistent randomized B+ tree images, page and WAL corruption, crash recovery, v1 migration equivalence, large rows, and deterministic in-memory B+ tree properties.
-CI runs release builds on Linux and macOS plus an AddressSanitizer and UndefinedBehaviorSanitizer build on Linux.
-The sanitizer job is a memory-safety regression gate, not evidence of production database readiness.
+CI runs a release build and the CTest suite on Linux.
+The AddressSanitizer and UndefinedBehaviorSanitizer build in the README is a local memory-safety check, not evidence of production database readiness.
