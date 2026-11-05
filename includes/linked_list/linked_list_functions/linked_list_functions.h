@@ -64,8 +64,6 @@ node<T>* _last_node(node<T>* head);
 
 // Definition
 
-// TODO
-
 // Linked List General Functions:
 template <typename T>
 void _print_list(node<T>* head)
