@@ -96,8 +96,6 @@ private:
 
 // Definition
 
-// TODO
-
 template <typename T>
 Stack<T>::Stack(){
     this->_size = 0;

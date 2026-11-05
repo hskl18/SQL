@@ -3,6 +3,9 @@
 SQL in C++ 2.0 is an educational relational database engine and command-line DSL implemented from first principles.
 It parses a focused subset of SQL, persists records in checksummed pages, maintains persistent B+ tree indexes, recovers atomic single-writer statements through a WAL, and evaluates compound filters with a shunting-yard pipeline.
 
+I wrote the first version in 2023 while learning C++ and rebuilt the storage engine in 2026.
+The [`original-2023`](https://github.com/hskl18/SQL/tree/original-2023) tag keeps the first version.
+
 ![Command-line preview](image/preview.png)
 
 ## What it supports
@@ -36,7 +39,6 @@ Values are stored and ordered as strings, so numeric-looking values use lexical 
 | `includes/sql` | Coordinates parsing and table operations through the public `SQL` interface. |
 
 Storage invariants, query semantics, and deliberate limits are documented in [DESIGN.md](DESIGN.md).
-The canonical repository is [hskl18/SQL](https://github.com/hskl18/SQL).
 
 ## Build
 

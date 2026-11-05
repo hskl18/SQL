@@ -622,6 +622,4 @@ bool BPlusTree<Item>::is_valid() const
     return true;
 }
 
-// TODO
-
 #endif // BPLUSTREE_H

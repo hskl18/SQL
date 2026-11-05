@@ -119,8 +119,6 @@ private:
 
 // Definition
 
-// TODO
-
 template <typename T>
 Queue<T>::Queue(){
     this->_front = nullptr;
