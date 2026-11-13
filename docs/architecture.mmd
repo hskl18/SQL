@@ -1,0 +1,17 @@
+flowchart TB
+  subgraph query["Query path"]
+    direction LR
+    CLI["run_sql CLI<br/>or batch file"] --> Parser["Tokenizer and parser<br/>state machine, parse tree"]
+    Parser --> Table["Table<br/>insert, select, projection"]
+    Table -->|"WHERE"| Filter["Shunting-yard<br/>postfix filter"]
+    Filter --> Index["B+ tree index<br/>one per field"]
+  end
+  subgraph storage["Storage v2: checksummed 4 KB pages"]
+    direction LR
+    Pages["Page buffer"] -->|"1. after-image, fsync"| WAL[("table.sql2-wal")]
+    Pages -->|"2. dirty pages"| Data[("table.sql2")]
+    WAL -.->|"recover on open"| Data
+    Legacy[("v1 .bin files")] -->|"read-only, copy-first"| Migrate["sql_migrate_v1"]
+    Migrate --> Data
+  end
+  query -->|"rows and index pages"| storage

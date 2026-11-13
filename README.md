@@ -1,151 +1,68 @@
 # SQL in C++
 
-SQL in C++ 2.0 is an educational relational database engine and command-line DSL implemented from first principles.
-It parses a focused subset of SQL, persists records in checksummed pages, maintains persistent B+ tree indexes, recovers atomic single-writer statements through a WAL, and evaluates compound filters with a shunting-yard pipeline.
+A small relational database engine written from scratch in C++17.
+It parses a focused subset of SQL, stores each table in checksummed 4 KB pages, keeps a B+ tree index for every field, and recovers each statement atomically after a crash through a write-ahead log.
 
 I wrote the first version in 2023 while learning C++ and rebuilt the storage engine in 2026.
 The [`original-2023`](https://github.com/hskl18/SQL/tree/original-2023) tag keeps the first version.
 
-![Command-line preview](image/preview.png)
+![A CLI session: an insert that prints the table, a select of two fields filtered by major, and a compound filter with AND that returns one row.](docs/media/cli-session.png)
 
-## What it supports
+*A session in the CLI from a local Release build, November 13, 2026.*
 
-- `CREATE TABLE` with an ordered field list.
-- `INSERT INTO` with quoted or unquoted values.
-- `SELECT *` and projected field lists.
-- `WHERE` filters using `=`, `!=`, `<`, `<=`, `>`, and `>=`.
-- Compound `AND` and `OR` expressions with parentheses.
-- Checksummed paged persistence across separate CLI sessions.
-- Persistent per-field B+ tree indexes.
-- Crash recovery for atomic single-writer statements.
-- Copy-first migration from the v1 fixed-width format.
-- Batch execution from the sample command files in `batch/`.
+## Quick start
 
-This project is intentionally smaller than a production SQL database.
-It does not implement joins, multi-statement transactions, schemas, query planning, updates, or deletes.
-Values are stored and ordered as strings, so numeric-looking values use lexical comparison semantics.
-
-## Architecture
-
-| Component | Responsibility |
-| --- | --- |
-| `includes/tokenizer` | Converts command text into lexical tokens with a state machine. |
-| `includes/parser` | Validates the supported grammar and builds a parse tree. |
-| `includes/shunting_yard` | Converts compound filter expressions to postfix form. |
-| `includes/map` | Implements B+ tree-backed maps and multimaps. |
-| `includes/binary_files` | Reads the legacy v1 fixed-width format. |
-| `includes/storage` | Owns v2 pages, persistent indexes, checksums, WAL, and recovery. |
-| `includes/table` | Owns table persistence, indexes, projections, and selections. |
-| `includes/sql` | Coordinates parsing and table operations through the public `SQL` interface. |
-
-Storage invariants, query semantics, and deliberate limits are documented in [DESIGN.md](DESIGN.md).
-
-## Build
-
-You need a C++17 compiler and CMake 3.20 or newer.
+You need a C++17 compiler and CMake 3.20 or newer; the build downloads nothing.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-```
-
-The build has no downloaded test framework or other third-party dependency.
-
-## Test
-
-```bash
 ctest --test-dir build --output-on-failure
-```
-
-The test executables verify SQL behavior, persistent incremental B+ tree splits, stable untouched pages, WAL ordering, dynamically enumerated crash boundaries, corruption rejection, idempotent recovery, migration equivalence, maximum-width rows, CLI inspection, parser safety, and both repository batch fixtures.
-Tests run in an isolated build directory, so they do not leave database files in the source tree.
-
-To run the tests under AddressSanitizer and UndefinedBehaviorSanitizer:
-
-```bash
-cmake -S . -B build-sanitized \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DBUILD_TESTING=ON \
-  -DSQL_ENABLE_SANITIZERS=ON \
-  -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
-cmake --build build-sanitized --parallel
-ctest --test-dir build-sanitized --output-on-failure
-```
-
-## Run the CLI
-
-```bash
 ./build/run_sql
 ```
 
-Type `end` to exit and `cls` to clear the terminal.
-The CLI writes each table to `<table>.sql2` and uses `<table>.sql2-wal` during a mutating statement.
-It reports missing tables, invalid projections, wrong row arity, duplicate schemas, malformed filters, corrupt pages, and corrupt WAL records without terminating the session.
-
-Example session:
+Type `end` to exit and `cls` to clear the screen.
 
 ```text
 SQL>> create table student fields first, last, major, age
-SQL>> insert into student values Ada, Lovelace, Math, 36
 SQL>> insert into student values Grace, Hopper, CS, 30
 SQL>> select first, major from student where major = CS
-SQL>> end
 ```
 
-## Query grammar
+## Architecture
 
-```text
-create table <table> fields <field> [, <field> ...]
-insert into <table> values <value> [, <value> ...]
-select <* | field [, field ...]> from <table>
-    [where <field> <operator> <value>
-    [<and | or> <field> <operator> <value> ...]]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
+  <img alt="A command goes from the CLI through the tokenizer and parser to the table, which filters through the shunting-yard step and a B+ tree index per field. Storage writes the after-image to the WAL and syncs it, then writes the dirty pages to the table file; opening a table recovers from the WAL. The v1 migration tool copies old .bin files into the new format." src="docs/architecture-light.svg">
+</picture>
 
-Quote values that contain spaces, such as `"Mary Ann"`.
-Quoted values may contain spaces, numbers, and punctuation, but escaped double quotes are not supported.
+The table answers a `WHERE` filter from the per-field B+ tree indexes after the shunting-yard step turns the filter into postfix form.
+Each statement that changes a table first writes its complete after-image to `<table>.sql2-wal` and syncs it, and only then writes the changed pages to `<table>.sql2`.
+Opening a table replays a complete WAL record, so a crash at any write leaves either the old table or the new one.
 
-## Version and storage inspection
+## What it supports
 
-```bash
-./build/run_sql --version
-./build/run_sql --inspect-storage student
-```
+- `CREATE TABLE`, `INSERT INTO`, and `SELECT` with `*` or a field list.
+- `WHERE` with `=`, `!=`, `<`, `<=`, `>`, `>=`, and `AND` and `OR` with parentheses.
+- Tables that persist across CLI sessions, with page, index, and WAL corruption rejected on open.
+- Batch runs from the sample command files in `batch/`.
+- Copy-first migration from the 2023 fixed-width format.
 
-Inspection validates checksums and structural bounds without applying or clearing a pending WAL.
+It has no joins, multi-statement transactions, query planning, updates, or deletes, and it allows one writer at a time.
+Values are stored and compared as strings, so `9` sorts after `10`.
 
-## Migrate a v1 table
+## Tests
 
-Inspect a legacy table without writing anything:
+The CTest suite covers SQL behavior, parser safety, B+ tree splits, WAL ordering, a crash at every traced write and fsync, corruption rejection, recovery that can run twice, v1 migration, and the CLI.
+Tests run in the build directory and leave no database files in the source tree.
+CI runs a Release build and the suite on Linux.
 
-```bash
-./build/sql_migrate_v1 --dry-run student
-```
+## Documentation
 
-Migrate it to `student.sql2`:
-
-```bash
-./build/sql_migrate_v1 student
-```
-
-The migration reads the v1 `.bin` and `_fields.bin` files read-only, writes an exclusively owned temporary v2 image, reopens and compares every row, rechecks the source bytes, then atomically links the verified destination without replacement.
-It never modifies or deletes the v1 source.
-Use `--destination <path>` to choose another destination and note that existing destinations are rejected.
-
-## Persistence boundaries
-
-- Tables contain between 1 and 64 uniquely named fields.
-- Identifiers contain letters, digits, and underscores and cannot start with a digit.
-- Each value is at most 100 bytes, and rows may cross page boundaries.
-- An insert must provide exactly one value per field.
-- Values longer than 100 bytes are rejected before a write.
-- Existing tables cannot be overwritten by another `CREATE TABLE` command.
-- Page, index, schema, row, and WAL corruption fail closed when a table is opened.
-- V1 tables can be queried read-only and must be migrated before new inserts.
-- The durability scope is one process, one writer, and one atomic statement at a time.
-
-The exact byte layout, recovery ordering, checksums, and compatibility boundary are documented in [docs/storage-v2.md](docs/storage-v2.md).
+- [Usage](docs/usage.md): the full grammar, the CLI's files and errors, storage inspection, v1 migration, limits, and the sanitizer build.
+- [Design and invariants](DESIGN.md): the command path, source layout, and storage and query rules.
+- [Storage format v2](docs/storage-v2.md): the byte layout, checksums, and recovery order.
 
 ## License
 
-This project is available under the [MIT License](LICENSE).
+[MIT](LICENSE)

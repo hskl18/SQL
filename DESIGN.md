@@ -14,6 +14,19 @@ The implementation favors inspectable data structures over production database f
 Invalid syntax, unknown tables or fields, unmatched quotes or parentheses, and corrupt files fail closed.
 An invalid `WHERE` expression never falls back to an unfiltered query.
 
+## Source layout
+
+| Component | Responsibility |
+| --- | --- |
+| `includes/tokenizer` | Converts command text into lexical tokens with a state machine. |
+| `includes/parser` | Validates the supported grammar and builds a parse tree. |
+| `includes/shunting_yard` | Converts compound filter expressions to postfix form. |
+| `includes/map` | Implements B+ tree-backed maps and multimaps. |
+| `includes/binary_files` | Reads the legacy v1 fixed-width format. |
+| `includes/storage` | Owns v2 pages, persistent indexes, checksums, WAL, and recovery. |
+| `includes/table` | Owns table persistence, indexes, projections, and selections. |
+| `includes/sql` | Coordinates parsing and table operations through the public `SQL` interface. |
+
 ## Storage format
 
 Version 2 stores a table in one 4096-byte paged `<table>.sql2` file.
@@ -53,4 +66,4 @@ The command-line process reads and writes table files in its current working dir
 
 The CTest suite covers end-to-end SQL behavior, parser safety, persistent randomized B+ tree images, page and WAL corruption, crash recovery, v1 migration equivalence, large rows, and deterministic in-memory B+ tree properties.
 CI runs a release build and the CTest suite on Linux.
-The AddressSanitizer and UndefinedBehaviorSanitizer build in the README is a local memory-safety check, not evidence of production database readiness.
+The AddressSanitizer and UndefinedBehaviorSanitizer build in [docs/usage.md](docs/usage.md#sanitizer-build) is a local memory-safety check, not evidence of production database readiness.
