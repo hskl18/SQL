@@ -1,0 +1,18 @@
+flowchart TB
+  subgraph query["Query path"]
+    direction LR
+    CLI["run_sql CLI<br/>or batch file"] --> Parser["Tokenizer and parser<br/>state machine, parse tree"]
+    Parser --> Table["Table<br/>insert, select, projection"]
+    Table -->|"WHERE"| Filter["Shunting-yard<br/>postfix filter"]
+    Filter --> Index["B+ tree index<br/>one per field"]
+  end
+  subgraph storage["Storage"]
+    direction LR
+    Pages["Page buffer<br/>checksummed<br/>4 KB pages"] -->|"1. after-image, fsync"| WAL[("table.sql2-wal")]
+    Pages -->|"2. dirty pages"| Data[("table.sql2")]
+    WAL -.->|"recover on open"| Data
+    Legacy[("v1 .bin files")] -->|"read-only, copy-first"| Migrate["sql_migrate_v1"]
+    Migrate --> Data
+  end
+  query -->|"rows and index pages"| storage
+%% Edit this file; the owner renders architecture-light.svg and architecture-dark.svg from it with a shared theme.
