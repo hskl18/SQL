@@ -32,6 +32,8 @@ select <* | field [, field ...]> from <table>
     [<and | or> <field> <operator> <value> ...]]
 ```
 
+`<operator>` is one of `=`, `!=`, `<`, `<=`, `>`, or `>=`, and parentheses group `and` and `or` terms.
+
 Quote values that contain spaces, such as `"Mary Ann"`.
 Quoted values may contain spaces, numbers, and punctuation, but escaped double quotes are not supported.
 
@@ -74,7 +76,7 @@ Use `--destination <path>` to choose another destination and note that existing 
 - V1 tables can be queried read-only and must be migrated before new inserts.
 - The durability scope is one process, one writer, and one atomic statement at a time.
 
-The exact byte layout, recovery ordering, checksums, and compatibility boundary are documented in [docs/storage-v2.md](docs/storage-v2.md).
+The exact byte layout, recovery ordering, checksums, and compatibility boundary are documented in [storage-v2.md](storage-v2.md).
 
 ## Sanitizer build
 
