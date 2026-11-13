@@ -12,7 +12,7 @@ The [`original-2023`](https://github.com/hskl18/SQL/tree/original-2023) tag keep
 
 ## Quick start
 
-You need a C++17 compiler and CMake 3.20 or newer; the build downloads nothing.
+You need a C++17 compiler and CMake 3.20 or newer; the build has no third-party dependency and downloads nothing.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -33,12 +33,12 @@ SQL>> select first, major from student where major = CS
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
-  <img alt="A command goes from the CLI through the tokenizer and parser to the table, which filters through the shunting-yard step and a B+ tree index per field. Storage writes the after-image to the WAL and syncs it, then writes the dirty pages to the table file; opening a table recovers from the WAL. The v1 migration tool copies old .bin files into the new format." src="docs/architecture-light.svg">
+  <img alt="A command goes from the CLI through the tokenizer and parser to the table, which filters through the shunting-yard step and a B+ tree index per field. The storage layer keeps checksummed 4 KB pages; it writes the after-image to the WAL and syncs it, then writes the dirty pages to the table file, and opening a table recovers from a complete WAL record. The v1 migration tool copies old .bin files into the new format." src="docs/architecture-light.svg">
 </picture>
 
 The table answers a `WHERE` filter from the per-field B+ tree indexes after the shunting-yard step turns the filter into postfix form.
 Each statement that changes a table first writes its complete after-image to `<table>.sql2-wal` and syncs it, and only then writes the changed pages to `<table>.sql2`.
-Opening a table replays a complete WAL record, so a crash at any write leaves either the old table or the new one.
+A crash before the WAL write leaves the old table, a crash after the WAL is synced recovers the new table on open, and a torn WAL record makes the open fail with a corruption error instead of guessing.
 
 ## What it supports
 
@@ -48,12 +48,12 @@ Opening a table replays a complete WAL record, so a crash at any write leaves ei
 - Batch runs from the sample command files in `batch/`.
 - Copy-first migration from the 2023 fixed-width format.
 
-It has no joins, multi-statement transactions, query planning, updates, or deletes, and it allows one writer at a time.
+It has no joins, multi-statement transactions, schemas, query planning, updates, or deletes, and it has no locking, so run only one writer at a time.
 Values are stored and compared as strings, so `9` sorts after `10`.
 
 ## Tests
 
-The CTest suite covers SQL behavior, parser safety, B+ tree splits, WAL ordering, a crash at every traced write and fsync, corruption rejection, recovery that can run twice, v1 migration, and the CLI.
+The CTest suite covers SQL behavior, parser safety, B+ tree splits, stable untouched pages, WAL ordering, a crash at every traced write and fsync, corruption rejection, recovery that can run twice, v1 migration, maximum-width rows, the CLI, and both batch fixtures.
 Tests run in the build directory and leave no database files in the source tree.
 CI runs a Release build and the suite on Linux.
 

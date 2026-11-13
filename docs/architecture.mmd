@@ -6,12 +6,13 @@ flowchart TB
     Table -->|"WHERE"| Filter["Shunting-yard<br/>postfix filter"]
     Filter --> Index["B+ tree index<br/>one per field"]
   end
-  subgraph storage["Storage v2: checksummed 4 KB pages"]
+  subgraph storage["Storage"]
     direction LR
-    Pages["Page buffer"] -->|"1. after-image, fsync"| WAL[("table.sql2-wal")]
+    Pages["Page buffer<br/>checksummed 4 KB pages"] -->|"1. after-image, fsync"| WAL[("table.sql2-wal")]
     Pages -->|"2. dirty pages"| Data[("table.sql2")]
     WAL -.->|"recover on open"| Data
     Legacy[("v1 .bin files")] -->|"read-only, copy-first"| Migrate["sql_migrate_v1"]
     Migrate --> Data
   end
   query -->|"rows and index pages"| storage
+%% Edit this file, then render architecture-light.svg and architecture-dark.svg from it again.
